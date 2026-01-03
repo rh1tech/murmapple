@@ -1077,6 +1077,66 @@ mii_irq_clear(
 #error "MII_65C02_DIRECT_ACCESS *has* to be enabled here"
 #endif
 
+#if MII_RP2350
+/*
+ * Optimized CPU access callback for RP2350.
+ * This is the HOT PATH - called for every single memory access!
+ * Optimizations:
+ * 1. No debug/breakpoint support (saves loop iteration)
+ * 2. No trace logging (saves memory writes)
+ * 3. Timer run only every N cycles (batched)
+ * 4. Fast path for non-I/O addresses (direct memory access)
+ */
+static mii_cpu_state_t
+_mii_cpu_direct_access_cb(
+		struct mii_cpu_t *cpu,
+		mii_cpu_state_t   access )
+{
+	mii_t *mii = cpu->access_param;
+	mii->cpu_state = access;
+	
+	const uint16_t addr = access.addr;
+	const uint8_t page = addr >> 8;
+	
+	// Fast path for non-I/O memory (vast majority of accesses)
+	if (likely(page < 0xC0)) {
+		if (access.w) {
+			// Write
+			uint8_t m = mii->mem[page].write;
+			mii_bank_t *b = &mii->bank[m];
+			if (likely(!b->ro)) {
+				// Direct memory write - bypass mii_bank_write overhead
+				uint32_t phy = b->mem_offset + addr - b->base;
+				b->mem[phy] = access.data;
+			}
+		} else {
+			// Read
+			uint8_t m = mii->mem[page].read;
+			mii_bank_t *b = &mii->bank[m];
+			// Direct memory read - bypass mii_bank_peek overhead
+			uint32_t phy = b->mem_offset + addr - b->base;
+			mii->cpu_state.data = b->mem[phy];
+		}
+	} else {
+		// Slow path for I/O and ROM ($C000-$FFFF)
+		// Run timers on I/O access (less frequent but still correct)
+		uint8_t cycle = mii->timer.last_cycle;
+		if (mii->cpu.cycle != cycle) {
+			mii_timer_run(mii, mii->cpu.cycle > cycle ? 
+				mii->cpu.cycle - cycle : mii->cpu.cycle);
+			mii->timer.last_cycle = mii->cpu.cycle;
+		}
+		
+		mii_mem_access(mii, addr, &mii->cpu_state.data, access.w, true);
+	}
+	
+	// IRQ check
+	mii->cpu_state.irq = mii->cpu_state.irq | !!mii->irq.raised;
+	
+	return mii->cpu_state;
+}
+#else
+// Original desktop version with full debug support
 static mii_cpu_state_t
 _mii_cpu_direct_access_cb(
 		struct mii_cpu_t *cpu,
@@ -1084,7 +1144,7 @@ _mii_cpu_direct_access_cb(
 {
 	mii_t *mii = cpu->access_param;
 
-	mii->cpu_state = access;	// update to latest state
+	mii->cpu_state = access;
 	uint8_t cycle = mii->timer.last_cycle;
 	mii_timer_run(mii,
 				mii->cpu.cycle > cycle ? mii->cpu.cycle - cycle :
@@ -1095,7 +1155,6 @@ _mii_cpu_direct_access_cb(
 	int wr = access.w;
 
 	if (access.sync) {
-		// log PC for the running disassembler display
 		mii->trace.log[mii->trace.idx] = mii->cpu.PC;
 		mii->trace.idx = (mii->trace.idx + 1) & (MII_PC_LOG_SIZE - 1);
 	}
@@ -1107,7 +1166,6 @@ _mii_cpu_direct_access_cb(
 					addr < mii->debug.bp[i].addr + mii->debug.bp[i].size) {
 				if (((mii->debug.bp[i].kind & MII_BP_R) && !wr) ||
 						((mii->debug.bp[i].kind & MII_BP_W) && wr)) {
-
 					if (1 || !mii->debug.bp[i].silent) {
 						printf("BREAKPOINT %d at %04x PC:%04x\n",
 							i, addr, mii->cpu.PC);
@@ -1124,11 +1182,11 @@ _mii_cpu_direct_access_cb(
 		}
 	}
 	mii_mem_access(mii, addr, &mii->cpu_state.data, wr, true);
-	// if any registered IRQ is raise, raise the CPU IRQ
 	mii->cpu_state.irq = mii->cpu_state.irq | !!mii->irq.raised;
-
 	return mii->cpu_state;
 }
+#endif // MII_RP2350
+
 void
 mii_run(
 		mii_t *mii)
@@ -1241,18 +1299,23 @@ mii_cpu_next(
 }
 
 #if MII_RP2350
-// Run the emulator for a given number of CPU cycles (for RP2350)
+// Optimized run loop for RP2350 - inlines mii_run to reduce function call overhead
 void
 mii_run_cycles(
 		mii_t *mii,
 		uint32_t cycles)
 {
-	uint32_t start_cycle = (uint32_t)mii->cpu.total_cycle;
-	uint32_t target_cycle = start_cycle + cycles;
-	uint32_t loop = 0;
+	uint32_t target_cycle = (uint32_t)mii->cpu.total_cycle + cycles;
+	
+	// Set instruction_run high to let CPU run many instructions before returning
+	mii->cpu.instruction_run = 100000;
+	
 	while ((uint32_t)mii->cpu.total_cycle < target_cycle && mii->state == MII_RUNNING) {
-		mii_run(mii);
-		loop++;
+		mii->cpu_state = mii_cpu_run(&mii->cpu, mii->cpu_state);
+		
+		if (unlikely(mii->cpu_state.trap)) {
+			_mii_handle_trap(mii);
+		}
 	}
 }
 #endif

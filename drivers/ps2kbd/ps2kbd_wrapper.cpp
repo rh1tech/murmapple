@@ -43,7 +43,7 @@ static unsigned char hid_to_apple2(uint8_t code, uint8_t modifiers) {
     switch (code) {
         case 0x28: return 0x0D;  // Enter
         case 0x29: return 0x1B;  // Escape
-        case 0x2A: return 0x7F;  // Backspace (Delete on Apple II)
+        case 0x2A: return 0x08;  // Backspace (left arrow/delete on Apple II)
         case 0x2B: return 0x09;  // Tab
         case 0x2C: return ' ';   // Space
         

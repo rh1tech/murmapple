@@ -122,13 +122,17 @@ static void init_palette(void) {
 }
 
 // Process PS/2 keyboard input
+static uint32_t last_key_time = 0;
 static void process_keyboard(void) {
     int pressed;
     unsigned char key;
     
     while (ps2kbd_get_key(&pressed, &key)) {
         if (pressed) {
-            printf("Key: '%c' (0x%02X)\n", (key >= 0x20 && key < 0x7F) ? key : '?', key);
+            uint32_t now = time_us_32();
+            uint32_t delta = now - last_key_time;
+            printf("KEY: 0x%02X delta=%lu us\n", key, delta);
+            last_key_time = now;
             mii_keypress(&g_mii, key);
         }
     }
@@ -359,43 +363,35 @@ int main() {
     // Main emulation loop on core 0
     const uint32_t cycles_per_frame = 17066; // 1023000 / 60
     
-    uint32_t last_frame_time = time_us_32();
     uint32_t frame_count = 0;
+    uint32_t total_emu_time = 0;
+    uint32_t total_kbd_time = 0;
     
     while (1) {
-        // Process PS/2 keyboard
+        // Poll keyboard at start of frame
+        uint32_t kbd_start = time_us_32();
         ps2kbd_tick();
         process_keyboard();
+        uint32_t kbd_end = time_us_32();
+        total_kbd_time += (kbd_end - kbd_start);
         
-        // Run CPU for one frame's worth of cycles
+        // Run CPU for one frame
+        uint32_t emu_start = time_us_32();
         mii_run_cycles(&g_mii, cycles_per_frame);
+        uint32_t emu_end = time_us_32();
+        total_emu_time += (emu_end - emu_start);
         
-        // Frame timing
-        uint32_t now = time_us_32();
-        uint32_t elapsed = now - last_frame_time;
-        
-        // Target 16667 us per frame (60 fps)
-        if (elapsed < 16667) {
-            sleep_us(16667 - elapsed);
-        }
-        
-        last_frame_time = time_us_32();
         frame_count++;
         
-        // Print stats every 60 frames (1 second)
+        // Print stats every 60 frames 
         if ((frame_count % 60) == 0) {
-            // Read from MAIN bank, not PSRAM - CH is at $24, CV at $25
-            uint8_t ch = mii_read_one(&g_mii, 0x24);
-            uint8_t cv = mii_read_one(&g_mii, 0x25);
-            // Also check first few bytes of text page
-            uint8_t t0 = mii_read_one(&g_mii, 0x400);
-            uint8_t t1 = mii_read_one(&g_mii, 0x401);
-            uint8_t t2 = mii_read_one(&g_mii, 0x402);
-            printf("Frame %lu, PC: $%04X, CH=%d CV=%d, TXT=%02X %02X %02X\n", 
-                   frame_count, g_mii.cpu.PC, ch, cv, t0, t1, t2);
+            uint32_t avg_emu_us = total_emu_time / 60;
+            uint32_t avg_kbd_us = total_kbd_time / 60;
+            printf("Frame %lu: emu=%lu us/frame, kbd=%lu us/frame (target: 16667), PC: $%04X\n", 
+                   frame_count, avg_emu_us, avg_kbd_us, g_mii.cpu.PC);
+            total_emu_time = 0;
+            total_kbd_time = 0;
         }
-        
-        // Cursor blinking removed - rely on ROM/emulator to do this
     }
     
     return 0;

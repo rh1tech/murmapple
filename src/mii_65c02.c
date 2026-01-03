@@ -34,6 +34,51 @@ mii_cpu_init(
 }
 
 #if MII_65C02_DIRECT_ACCESS
+
+#if MII_RP2350
+/*
+ * Ultra-fast inline memory access for RP2350.
+ * Avoids function pointer overhead by inlining the memory access directly.
+ * 
+ * Fast path: addresses outside $C000-$C0FF (RAM, stack, ROM, etc.)
+ * Slow path: only $C000-$C0FF (I/O soft switches)
+ * 
+ * This is critical because the Apple II ROM is at $C100-$FFFF, so most
+ * instruction fetches need to be fast!
+ */
+#include "mii.h"
+
+/* Check if address is in I/O range ($C000-$C0FF) */
+#define _IS_IO_ADDR(_a) (((_a) & 0xFF00) == 0xC000)
+
+#define _FETCH(_val) { \
+		s.addr = (_val); s.w = 0; cpu->cycle++; \
+		uint16_t _a = s.addr; \
+		if (likely(!_IS_IO_ADDR(_a))) { \
+			mii_t *_mii = cpu->access_param; \
+			uint8_t _page = _a >> 8; \
+			uint8_t _m = _mii->mem[_page].read; \
+			mii_bank_t *_b = &_mii->bank[_m]; \
+			s.data = _b->mem[_b->mem_offset + _a - _b->base]; \
+		} else { \
+			s = cpu->access(cpu, s); \
+		} \
+	}
+#define _STORE(_addr, _val) { \
+		s.addr = (_addr); s.data = (_val); s.w = 1; cpu->cycle++; \
+		uint16_t _a = s.addr; \
+		if (likely(!_IS_IO_ADDR(_a))) { \
+			mii_t *_mii = cpu->access_param; \
+			uint8_t _page = _a >> 8; \
+			uint8_t _m = _mii->mem[_page].write; \
+			mii_bank_t *_b = &_mii->bank[_m]; \
+			_b->mem[_b->mem_offset + _a - _b->base] = s.data; \
+		} else { \
+			s = cpu->access(cpu, s); \
+		} \
+	}
+#else
+/* Original callback-based access for desktop */
 #define _FETCH(_val) { \
 		s.addr = _val; s.w = 0; cpu->cycle++; \
 		s = cpu->access(cpu, s); \
@@ -42,6 +87,8 @@ mii_cpu_init(
 		s.addr = _addr; s.data = _val; s.w = 1; cpu->cycle++; \
 		s = cpu->access(cpu, s); \
 	}
+#endif
+
 #else
 #define _FETCH(_val) { \
 		s.addr = _val; s.w = 0; cpu->cycle++; \
