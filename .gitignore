@@ -1,0 +1,14 @@
+# Build output
+build/
+
+# Third party dependencies
+third_party/
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
