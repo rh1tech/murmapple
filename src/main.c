@@ -93,7 +93,8 @@ static void __no_inline_not_in_flash_func(set_flash_timings)(int cpu_mhz) {
 static mii_t g_mii;
 
 // HDMI framebuffer
-static uint8_t *g_hdmi_buffer = NULL;
+static uint8_t *g_hdmi_front_buffer = NULL;
+static uint8_t *g_hdmi_back_buffer = NULL;
 
 // Apple II color palette (RGB888)
 static const uint32_t apple2_rgb888[16] = {
@@ -174,6 +175,7 @@ static void core1_main(void) {
     printf("Core 1: Starting video rendering\n");
     
     bool was_ui_visible = false;
+    uint32_t last_frame = hdmi_get_frame_count();
     
     while (1) {
         sleep_ms(16);
@@ -181,18 +183,33 @@ static void core1_main(void) {
         // Check if disk UI is visible
         bool ui_visible = disk_ui_is_visible();
         
+        // Always render into the back buffer, then request a swap on vsync.
         if (ui_visible) {
-            // Clear framebuffer only once when UI first becomes visible
+            // When the UI first becomes visible, seed the back buffer from the
+            // current front buffer so the modal draws over a stable background.
             if (!was_ui_visible) {
-                memset(g_hdmi_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
+                memcpy(g_hdmi_back_buffer, g_hdmi_front_buffer, HDMI_WIDTH * HDMI_HEIGHT);
             }
-            // Render disk UI (uses internal dirty flag to avoid redundant redraws)
-            disk_ui_render(g_hdmi_buffer, HDMI_WIDTH, HDMI_HEIGHT);
+            disk_ui_render(g_hdmi_back_buffer, HDMI_WIDTH, HDMI_HEIGHT);
         } else {
-            // Normal Apple II video rendering
             mii_video_render(&g_mii);
-            mii_video_scale_to_hdmi(&g_mii.video, g_hdmi_buffer);
+            mii_video_scale_to_hdmi(&g_mii.video, g_hdmi_back_buffer);
         }
+
+        graphics_request_buffer_swap(g_hdmi_back_buffer);
+
+        // Wait until the swap has actually happened (vsync tick), then rotate buffers.
+        // This avoids writing into the buffer currently being scanned out.
+        uint32_t f;
+        do {
+            f = hdmi_get_frame_count();
+            if (f != last_frame) break;
+            sleep_ms(1);
+        } while (1);
+        last_frame = f;
+        uint8_t *tmp = g_hdmi_front_buffer;
+        g_hdmi_front_buffer = g_hdmi_back_buffer;
+        g_hdmi_back_buffer = tmp;
         
         was_ui_visible = ui_visible;
     }
@@ -233,14 +250,25 @@ static void load_rom(mii_t *mii, const uint8_t *rom, size_t len, uint16_t addr) 
 
 // Load character ROM
 static void load_char_rom(mii_t *mii, const uint8_t *rom, size_t len) {
-    // First try the auto-registered ROM
+    // Ensure we always end up with a descriptor whose .rom points at real bytes.
+    // On RP2350 we don't run the desktop ROM loader, so any auto-registered
+    // descriptor may exist but still have a NULL .rom.
     mii_rom_t *video_rom = mii_rom_get("iiee_video");
-    if (video_rom) {
+    if (video_rom && video_rom->rom) {
         mii->video.rom = video_rom;
         printf("Loaded %zu bytes character ROM (auto-registered)\n", len);
+        return;
+    }
+
+    // Fall back to direct pointer (or patch the descriptor if it exists but is empty).
+    if (video_rom) {
+        video_rom->rom = rom;
+        video_rom->len = len;
+        mii->video.rom = video_rom;
+        printf("Loaded %zu bytes character ROM (patched descriptor)\n", len);
     } else {
-        // Fall back to direct pointer
         char_rom_fallback.rom = rom;
+        char_rom_fallback.len = len;
         mii->video.rom = &char_rom_fallback;
         printf("Loaded %zu bytes character ROM (fallback)\n", len);
     }
@@ -295,24 +323,28 @@ int main() {
     
     // Allocate HDMI framebuffer in SRAM (not PSRAM!) - DMA needs fast access
     printf("Allocating HDMI framebuffer in SRAM...\n");
-    g_hdmi_buffer = (uint8_t *)malloc(HDMI_WIDTH * HDMI_HEIGHT);
-    if (!g_hdmi_buffer) {
+    // Double-buffer to prevent tearing: one buffer scanned out by HDMI DMA, one rendered by core1.
+    g_hdmi_front_buffer = (uint8_t *)malloc(HDMI_WIDTH * HDMI_HEIGHT);
+    g_hdmi_back_buffer = (uint8_t *)malloc(HDMI_WIDTH * HDMI_HEIGHT);
+    if (!g_hdmi_front_buffer || !g_hdmi_back_buffer) {
         printf("ERROR: Failed to allocate HDMI framebuffer\n");
         while (1) tight_loop_contents();
     }
-    printf("HDMI buffer allocated at %p (%d bytes)\n", g_hdmi_buffer, HDMI_WIDTH * HDMI_HEIGHT);
-    memset(g_hdmi_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
+    printf("HDMI buffers allocated: front=%p back=%p (%d bytes each)\n",
+           g_hdmi_front_buffer, g_hdmi_back_buffer, HDMI_WIDTH * HDMI_HEIGHT);
+    memset(g_hdmi_front_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
+    memset(g_hdmi_back_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
     
     // IMPORTANT: Set buffer and resolution BEFORE graphics_init() 
     // because DMA/IRQs start immediately and will read from the buffer
-    graphics_set_buffer(g_hdmi_buffer);
+    graphics_set_buffer(g_hdmi_front_buffer);
     graphics_set_res(HDMI_WIDTH, HDMI_HEIGHT);
     
     // Initialize HDMI graphics (starts DMA/IRQs)
     printf("Initializing HDMI...\n");
     graphics_init(g_out_HDMI);
     printf("HDMI buffer at %p (%lux%lu)\n", 
-           g_hdmi_buffer, graphics_get_width(), graphics_get_height());
+            graphics_get_buffer(), graphics_get_width(), graphics_get_height());
     
     // Initialize palette
     init_palette();
@@ -325,7 +357,8 @@ int main() {
     printf("conv_color[15] = 0x%016llx 0x%016llx\n", conv_color64[30], conv_color64[31]);
     
     // Clear framebuffer to black
-    memset(g_hdmi_buffer, 0, sizeof(g_hdmi_buffer));
+    memset(g_hdmi_front_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
+    memset(g_hdmi_back_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
     
     // Initialize PS/2 keyboard
     printf("Initializing PS/2 keyboard...\n");
@@ -342,6 +375,11 @@ int main() {
     // Initialize the Apple IIe emulator
     printf("Initializing Apple IIe emulator...\n");
     mii_init(&g_mii);
+
+    // RP2350 mii_init() skips mii_video_init(); seed video-related SW registers.
+    // Default AN3 register to color mode (matches desktop init).
+    mii_bank_poke(&g_mii.bank[MII_BANK_SW], SWAN3_REGISTER, 1);
+    g_mii.video.an3_mode = 1;
     
     // Install Disk II controller in slot 6
     printf("Installing Disk II controller in slot 6...\n");
@@ -400,6 +438,14 @@ int main() {
     // Load character ROM
     printf("Loading character ROM...\n");
     load_char_rom(&g_mii, mii_rom_iiee_video, 4096);
+    if (g_mii.video.rom && g_mii.video.rom->rom) {
+        const uint8_t *p = (const uint8_t *)g_mii.video.rom->rom;
+        printf("Char ROM: desc=%p bytes=%p len=%u first=%02X %02X %02X %02X\n",
+               (void *)g_mii.video.rom, (void *)p, (unsigned)g_mii.video.rom->len,
+               p[0], p[1], p[2], p[3]);
+    } else {
+        printf("ERROR: Char ROM missing (desc=%p)\n", (void *)g_mii.video.rom);
+    }
     
     // Reset the emulator - this sets reset flag and state to RUNNING
     printf("Resetting emulator...\n");
@@ -434,13 +480,24 @@ int main() {
     printf("=================================\n\n");
     
     // Main emulation loop on core 0
-    // Apple II runs at 1.023 MHz = 1,023,000 cycles/second
-    // At 60 FPS, that's 17050 cycles per frame (16.67ms)
-    const uint32_t cycles_per_frame = 17050;
+    // Apple II runs at ~1.023 MHz = 1,023,000 cycles/second.
+    // Provide a basic SWVBL timing signal and throttle to real time.
+    // Video timing constants are aligned with the desktop video timer:
+    //   visible+HB: 12480 cycles, VBL: 4550 cycles (total 17030 cycles/frame)
+    const uint32_t a2_cycles_per_second = 1023000;
+    const uint32_t cycles_visible = 12480;
+    const uint32_t cycles_vblank = 4550;
+    const uint32_t cycles_per_frame = cycles_visible + cycles_vblank;
+    const uint32_t target_frame_us = (uint32_t)((1000000ULL * cycles_per_frame + (a2_cycles_per_second / 2)) / a2_cycles_per_second);
     
     uint32_t frame_count = 0;
     uint32_t total_emu_time = 0;
     uint16_t last_pc = 0;
+
+    // Debug state (printed from core0 to avoid disturbing HDMI DMA on core1)
+    uint32_t last_mode_key = 0xffffffffu;
+    uint32_t last_fb_hash = 0;
+    int last_fb_nonzero = -1;
     
     while (1) {
         uint32_t frame_start = time_us_32();
@@ -449,13 +506,93 @@ int main() {
         ps2kbd_tick();
         process_keyboard();
         
-        // Run CPU for one frame worth of cycles
-        mii_run_cycles(&g_mii, cycles_per_frame);
+        // Run CPU for one frame worth of cycles with a simple VBL window.
+        // SWVBL is 0 during retrace (vblank), 0x80 during active display.
+        mii_bank_poke(&g_mii.bank[MII_BANK_SW], SWVBL, 0x80);
+        mii_run_cycles(&g_mii, cycles_visible);
+
+        mii_bank_poke(&g_mii.bank[MII_BANK_SW], SWVBL, 0x00);
+        mii_run_cycles(&g_mii, cycles_vblank);
+
+        // Advance video frame counter for flashing text, etc.
+        g_mii.video.frame_count++;
         
         uint32_t frame_end = time_us_32();
         total_emu_time += (frame_end - frame_start);
+
+        // Throttle to real time so the emulator doesn't run too fast.
+        uint32_t elapsed = frame_end - frame_start;
+        if (elapsed < target_frame_us) {
+            sleep_us((uint64_t)(target_frame_us - elapsed));
+        }
         
         frame_count++;
+
+        // Video/mode + framebuffer debug ~once per second (60Hz)
+        if ((frame_count % 60) == 0) {
+            uint32_t sw = g_mii.sw_state;
+            bool store80 = !!(sw & M_SW80STORE);
+            bool text_mode = !!(sw & M_SWTEXT);
+            bool mixed = !!(sw & M_SWMIXED);
+            bool hires = !!(sw & M_SWHIRES);
+            bool col80 = !!(sw & M_SW80COL);
+            bool dhires = !!(sw & M_SWDHIRES);
+            bool page2_raw = !!(sw & M_SWPAGE2);
+            bool page2_eff = store80 ? 0 : page2_raw;
+            uint8_t an3 = g_mii.video.an3_mode;
+
+            uint32_t mode_key =
+                (text_mode ? 1u : 0u) |
+                (hires ? 2u : 0u) |
+                (mixed ? 4u : 0u) |
+                (page2_eff ? 8u : 0u) |
+                (col80 ? 16u : 0u) |
+                (dhires ? 32u : 0u) |
+                (store80 ? 64u : 0u) |
+                ((uint32_t)(an3 & 3u) << 8);
+
+            if (mode_key != last_mode_key) {
+                last_mode_key = mode_key;
+                const char *label = text_mode ? "TEXT" : (hires ? ((dhires && col80) ? "DHGR" : (mixed ? "HGR+MIXED" : "HGR")) : "LORES");
+                printf("VIDEO: text=%d hires=%d mixed=%d page2=%d(store80=%d raw=%d) col80=%d dhires=%d an3=%d -> %s\n",
+                    text_mode, hires, mixed, page2_eff, store80, page2_raw, col80, dhires, an3, label);
+            }
+
+            if (g_hdmi_front_buffer) {
+                uint32_t nonzero = 0;
+                uint32_t hash = 2166136261u; // FNV-1a 32-bit
+                uint32_t hist16[16] = {0};
+
+                // Sample within active 192-line Apple II region (y=24..215)
+                for (int y = 24; y < (24 + 192); y += 8) {
+                    const uint8_t *row = g_hdmi_front_buffer + (y * 320);
+                    for (int x = 0; x < 320; x += 8) {
+                        uint8_t v = row[x];
+                        nonzero += (v != 0);
+                        if (v < 16) hist16[v]++;
+                        hash ^= v;
+                        hash *= 16777619u;
+                    }
+                }
+
+                if ((int)nonzero != last_fb_nonzero || hash != last_fb_hash) {
+                    last_fb_nonzero = (int)nonzero;
+                    last_fb_hash = hash;
+                    printf("FB: nonzero=%lu/960 hash=%08lx c0=%lu c15=%lu\n",
+                        (unsigned long)nonzero,
+                        (unsigned long)hash,
+                        (unsigned long)hist16[0],
+                        (unsigned long)hist16[15]);
+                }
+            }
+
+            if (text_mode) {
+                const mii_rom_t *r = g_mii.video.rom;
+                if (!r || !r->rom) {
+                    printf("WARN: TEXT mode but char ROM missing (desc=%p)\n", (void *)r);
+                }
+            }
+        }
         
         // Print stats every 300 frames (5 seconds) to reduce serial traffic
         if ((frame_count % 300) == 0) {

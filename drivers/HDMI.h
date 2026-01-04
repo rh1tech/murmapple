@@ -54,6 +54,10 @@ enum graphics_mode_t {
 void graphics_init(g_out g_out);
 void graphics_set_buffer(uint8_t *buffer);
 uint8_t* graphics_get_buffer(void);
+// Request a buffer swap at the next vsync (frame boundary).
+void graphics_request_buffer_swap(uint8_t *buffer);
+// Returns a monotonically increasing frame counter (incremented on vsync).
+uint32_t hdmi_get_frame_count(void);
 uint32_t graphics_get_width(void);
 uint32_t graphics_get_height(void);
 void graphics_set_res(int w, int h);

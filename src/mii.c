@@ -727,7 +727,9 @@ mii_init(
 	printf("    Clearing soft switch area\n");
 	memset(rp2350_sw_mem, 0, sizeof(rp2350_sw_mem));
 	printf("    Clearing card ROM area\n");
-	memset(rp2350_card_rom, 0, sizeof(rp2350_card_rom));
+	// Unpopulated slots are effectively open-bus; $FF avoids accidental BRKs
+	// when firmware probes/executes slot ROM entry points.
+	memset(rp2350_card_rom, 0xFF, sizeof(rp2350_card_rom));
 
 	mii->cpu.trap = MII_TRAP;
 	
@@ -866,9 +868,9 @@ mii_reset(
 	/*
 	 * Default soft-switch states on reset.
 	 *
-	 * INTCXROM must default ON so $C100-$CFFF maps to internal firmware.
-	 * If left OFF, we map to the (empty) CARD ROM area on RP2350 and end up
-	 * executing $00 (BRK) at $C6xx during boot, dropping into the monitor.
+	 * Keep INTCXROM ON during reset/boot so the internal firmware view of
+	 * the $C100-$CFFF space matches what the IIe ROM expects (stable BASIC boot).
+	 * Disk boot/PR#6 can explicitly turn INTCXROM OFF once the system is up.
 	 */
 	mii->sw_state = M_BSRWRITE | M_BSRPAGE2 | M_SWINTCXROM;
 	mii_bank_poke(sw, SWSLOTC3ROM, 0);
@@ -882,7 +884,6 @@ mii_reset(
 	mii->mem_dirty = 1;
 	if (cold) {
 		/*  these HAS to be reset in that state somehow */
-		/* keep INTCXROM on for cold boot as well */
 		/*
 		 * Apple IIe ROM uses $03F2-$03F4 to detect and execute a WARM start.
 		 * If we leave a valid signature here, the ROM will skip cold init

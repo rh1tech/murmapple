@@ -892,12 +892,17 @@ mii_access_video(
 	switch (addr) {
 		case SWALTCHARSETOFF:
 		case SWALTCHARSETON:
-			if (!write) break;
+			/*
+			 * Apple II soft-switches generally trigger on both read and write.
+			 * Some software uses BIT/LDA on $C0xx to flip switches.
+			 */
 			res = true;
 			SW_SETSTATE(mii, SWALTCHARSET, addr & 1);
 			mii_bank_poke(sw, SWALTCHARSET, (addr & 1) << 7);
 			// in case there is some blinking text, we need to redraw
 			_mii_video_mark_dirty(&mii->video);
+			if (!write)
+				*byte = mii_video_get_vapor(mii);
 			break;
 		case SWVBL:
 		case SW80COL:
@@ -934,11 +939,16 @@ mii_access_video(
 		 	break;
 		case SW80COLOFF:
 		case SW80COLON:
-			if (!write) break;
+			/*
+			 * 80COL is toggled by access (read or write). Games commonly use BIT.
+			 * If we ignore reads here, 80COL never turns on and DHGR can't render.
+			 */
 			res = true;
 			SW_SETSTATE(mii, SW80COL, addr & 1);
 			mii_bank_poke(sw, SW80COL, (addr & 1) << 7);
 			_mii_video_mode_changed(&mii->video, mii->sw_state);
+			if (!write)
+				*byte = mii_video_get_vapor(mii);
 			break;
 		case SWDHIRESOFF: 	//  0xc05f,
 		case SWDHIRESON: { 	// = 0xc05e,
@@ -1365,6 +1375,26 @@ MII_MISH(video, _mii_mish_video);
  * Renders to a 320x240 8-bit indexed framebuffer
  */
 
+// Map CI_* palette indices (desktop) to RP2350 palette indices (Apple II lores order)
+static const uint8_t rp2350_ci_to_hw[16] = {
+	[CI_BLACK] = 0,
+	[CI_PURPLE] = 3,
+	[CI_GREEN] = 12,
+	[CI_BLUE] = 6,
+	[CI_ORANGE] = 9,
+	[CI_WHITE] = 15,
+	[CI_MAGENTA] = 1,
+	[CI_DARKBLUE] = 2,
+	[CI_DARKGREEN] = 4,
+	[CI_GRAY1] = 5,
+	[CI_GRAY2] = 10,
+	[CI_LIGHTBLUE] = 7,
+	[CI_BROWN] = 8,
+	[CI_PINK] = 11,
+	[CI_YELLOW] = 13,
+	[CI_AQUA] = 14,
+};
+
 // Render text mode (40 column) to framebuffer
 static void
 mii_video_render_text40_rp2350(
@@ -1447,8 +1477,7 @@ mii_video_render_text40_rp2350(
 		}
 	}
 	
-	// Increment frame counter for flashing cursor
-	mii->video.frame_count++;
+	// frame_count is advanced by the core0 timing loop
 }
 
 // Render bottom 4 text lines for mixed mode (lines 160-191 in Apple II coords)
@@ -1534,15 +1563,19 @@ mii_video_render_hires_rp2350(
 		int fb_width)
 {
 	mii_bank_t *main_bank = &mii->bank[MII_BANK_MAIN];
-	uint8_t *mem = main_bank->mem;  // Direct memory access like original
+	uint8_t *mem = main_bank->mem;  // Direct memory access
+	mii_video_t *video = &mii->video;
+	const uint8_t HW_BLACK = 0;
+	const uint8_t HW_WHITE = 15;
 	
 	// Check PAGE2 switch to select which HGR page
 	uint32_t sw = mii->sw_state;
-	bool page2 = (sw & M_SWPAGE2) && !(sw & M_SW80STORE);
+	bool page2 = SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
 	uint16_t base_addr = page2 ? 0x4000 : 0x2000;
 	
-	// HGR is 280x192, we render to 320x240 (offset of 24 lines vertically)
-	// Each byte contains 7 pixels + 1 palette bit (bit 7)
+	// HGR is 280x192. Render 1:1 into a 320-wide buffer with 20px borders.
+	// Use the same artifact-color decoding as the desktop renderer (_mii_line_render_hires).
+	const int x_off = (320 - 280) / 2; // 20
 	
 	for (int line = 0; line < 192; line++) {
 		// Apple II HGR line address calculation (same as original)
@@ -1556,37 +1589,123 @@ mii_video_render_hires_rp2350(
 		if (fb_y >= 240) continue;
 		
 		uint8_t *fb_row = fb + fb_y * fb_width;
-		
+		// Clear the whole row to black so borders don't retain stale pixels.
+		memset(fb_row, HW_BLACK, (size_t)fb_width);
+
+		uint8_t b0 = 0;
+		uint8_t b1 = mem[line_addr + 0];
 		for (int col = 0; col < 40; col++) {
-			// Direct memory access like original emulator
-			uint8_t byte = mem[line_addr + col];
-			
-			// Bit 7 determines color palette
-			bool palette = (byte >> 7) & 1;
-			
-			// 40 columns * 7 pixels = 280 pixels, scale to 320
-			// Simple approach: 8 pixels per column (320/40 = 8)
-			int fb_x_base = col * 8;
-			
-			// Render 7 pixels per byte (bits 0-6)
-			for (int bit = 0; bit < 7; bit++) {
-				bool pixel = (byte >> bit) & 1;
-				int fb_x = fb_x_base + bit;
-				
-				if (fb_x < fb_width) {
+			uint8_t b2 = (col == 39) ? 0 : mem[line_addr + col + 1];
+			// last 2 pixels, current 7 pixels, next 2 pixels
+			uint16_t run = ((b0 & 0x60) >> 5) |
+						((b1 & 0x7f) << 2) |
+						((b2 & 0x03) << 9);
+			int odd = (col & 1) << 1;
+			int offset = (b1 & 0x80) >> 5; // 0 or 4
+
+			for (int i = 0; i < 7; i++) {
+				uint8_t left = (run >> (1 + i)) & 1;
+				uint8_t pixel = (run >> (2 + i)) & 1;
+				uint8_t right = (run >> (3 + i)) & 1;
+				int idx = 0; // black
+				if (!video->monochrome) {
 					if (pixel) {
-						// White for now (simplified, proper color later)
-						fb_row[fb_x] = 15;  // White
+						if (left || right) {
+							idx = 9; // white
+						} else {
+							idx = offset + odd + (i & 1) + 1;
+						}
 					} else {
-						fb_row[fb_x] = 0;  // Black
+						if (left && right) {
+							idx = offset + odd + 1 - (i & 1) + 1;
+						}
 					}
+					uint8_t ci = (uint8_t)mii_base_clut.hires[idx];
+					uint8_t hw = rp2350_ci_to_hw[ci & 0x0f];
+					int x = col * 7 + i;
+					fb_row[x_off + x] = hw;
+				} else {
+					int x = col * 7 + i;
+					fb_row[x_off + x] = pixel ? HW_WHITE : HW_BLACK;
 				}
 			}
-			// 8th pixel column padding
-			int fb_x = fb_x_base + 7;
-			if (fb_x < fb_width) {
-				fb_row[fb_x] = 0;  // Black padding
+			b0 = b1;
+			b1 = b2;
+		}
+	}
+}
+
+static inline uint8_t
+_mii_get_1bits_rp2350(
+		const uint8_t *buffer,
+		int bit)
+{
+	int in_byte = bit / 8;
+	int in_bit = 7 - (bit % 8);
+	return (buffer[in_byte] >> in_bit) & 1;
+}
+
+static void
+mii_video_render_dhires_rp2350(
+		mii_t *mii,
+		uint8_t *fb,
+		int fb_width)
+{
+	mii_bank_t *main_bank = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t *aux_bank = &mii->bank[MII_VIDEO_BANK];
+	const uint32_t sw = mii->sw_state;
+	const bool page2 = SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
+	uint16_t base_addr = 0x2000 + (0x2000 * page2);
+
+	// Apple II DHGR is 560x192. We render into 320x240 with 24px top margin.
+	// Use nearest-neighbor horizontal resample: src_x = (x * 7) / 4.
+	const bool color = (mii->video.an3_mode == 1);
+
+	for (int line = 0; line < 192; line++) {
+		uint16_t line_addr = _mii_line_to_video_addr(base_addr, (uint8_t)line);
+		int fb_y = 24 + line;
+		if (fb_y >= 240)
+			continue;
+		uint8_t *fb_row = fb + fb_y * fb_width;
+
+		if (!color) {
+			// Mono: combine MAIN/AUX 7-bit streams into 14-bit pixels (560 wide)
+			for (int x = 0; x < 320; x++) {
+				int src = (x * 7) / 4; // 0..559
+				int col = src / 14;    // 0..39
+				int bi = src % 14;
+				uint32_t ext = (mii_bank_peek(aux_bank, line_addr + col) & 0x7f) |
+							((mii_bank_peek(main_bank, line_addr + col) & 0x7f) << 7);
+				uint8_t pixel = (ext >> bi) & 1;
+				fb_row[x] = pixel ? 15 : 0;
 			}
+			continue;
+		}
+
+		// Color: build a bit buffer for 80 bytes (AUX/MAIN interleaved)
+		uint8_t bits[71] = {0};
+		for (int x = 0; x < 80; x++) {
+			uint8_t b = mii_bank_peek((x & 1) ? main_bank : aux_bank,
+						line_addr + (x / 2));
+			for (int i = 0; i < 7; i++) {
+				int out_index = 2 + (x * 7) + i;
+				int out_byte = out_index / 8;
+				int out_bit = 7 - (out_index % 8);
+				int bit = (b >> i) & 1;
+				bits[out_byte] |= bit << out_bit;
+			}
+		}
+
+		for (int x = 0; x < 320; x++) {
+			int i = (x * 7) / 4; // 0..559
+			int d = 2 + i;
+			uint8_t pixel =
+				(_mii_get_1bits_rp2350(bits, i + 3) << (3 - ((d + 3) % 4))) +
+				(_mii_get_1bits_rp2350(bits, i + 2) << (3 - ((d + 2) % 4))) +
+				(_mii_get_1bits_rp2350(bits, i + 1) << (3 - ((d + 1) % 4))) +
+				(_mii_get_1bits_rp2350(bits, i)     << (3 - (d % 4)));
+			uint8_t ci = (uint8_t)mii_base_clut.dhires[pixel];
+			fb_row[x] = rp2350_ci_to_hw[ci & 0x0f];
 		}
 	}
 }
@@ -1666,24 +1785,22 @@ mii_video_scale_to_hdmi(
 	bool text_mode = !!(sw & M_SWTEXT);
 	bool mixed = !!(sw & M_SWMIXED);
 	bool hires = !!(sw & M_SWHIRES);
-	bool page2 = !!(sw & M_SWPAGE2);
-	
-	// Debug video mode periodically
-	static int last_mode = -1;
-	int cur_mode = (text_mode ? 1 : 0) | (hires ? 2 : 0) | (mixed ? 4 : 0) | (page2 ? 8 : 0);
-	if (cur_mode != last_mode) {
-		last_mode = cur_mode;
-		printf("VIDEO: text=%d hires=%d mixed=%d page2=%d -> %s\n", 
-			text_mode, hires, mixed, page2,
-			text_mode ? "TEXT" : (hires ? (mixed ? "HGR+MIXED" : "HGR") : "LORES"));
-	}
+	bool page2 = SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
+	bool col80 = !!(sw & M_SW80COL);
+	bool dhires = !!(sw & M_SWDHIRES);
+	uint8_t an3_mode = video->an3_mode;
+	(void)an3_mode;
 	
 	if (text_mode) {
 		// Pure text mode
 		mii_video_render_text40_rp2350(mii, hdmi_buffer, 320);
 	} else if (hires) {
 		// Hi-res graphics mode
-		mii_video_render_hires_rp2350(mii, hdmi_buffer, 320);
+		if (dhires && col80) {
+			mii_video_render_dhires_rp2350(mii, hdmi_buffer, 320);
+		} else {
+			mii_video_render_hires_rp2350(mii, hdmi_buffer, 320);
+		}
 		if (mixed) {
 			// Mixed mode: render bottom 4 text lines (lines 160-191)
 			// This overlays text on top of the HGR screen

@@ -10,6 +10,7 @@
 #include "disk_ui.h"
 #include "disk_loader.h"
 #include "mii.h"
+#include "mii_sw.h"
 
 // Emulator reference (for mounting disks)
 static mii_t *g_mii = NULL;
@@ -22,6 +23,10 @@ static volatile int selected_index = 0;      // Currently highlighted disk
 static volatile int scroll_offset = 0;       // For scrolling long lists
 static volatile bool ui_dirty = false;       // True when UI needs redraw
 static volatile bool ui_rendered = false;    // True when UI has been rendered at least once
+
+// With double-buffering, the render target alternates each frame.
+// Track the last framebuffer pointer so we can force a redraw when it changes.
+static uint8_t *g_last_framebuffer = NULL;
 
 // UI dimensions
 #define UI_X        40      // Left edge in 320px mode
@@ -207,6 +212,8 @@ void disk_ui_show(void) {
 void disk_ui_hide(void) {
     ui_state = DISK_UI_HIDDEN;
     ui_rendered = false;
+    ui_dirty = false;
+    g_last_framebuffer = NULL;
     printf("Disk UI: hidden\n");
 }
 
@@ -269,6 +276,10 @@ bool disk_ui_handle_key(uint8_t key) {
                             // Reset the CPU so it can boot from the new disk
                             printf("Disk UI: resetting CPU for disk boot\n");
                             mii_reset(g_mii, true);
+						// Make sure slot ROMs are visible for PR#6 / disk boot.
+						// The core reset defaults keep INTCXROM ON for reliable BASIC boot.
+						uint8_t sw = 0;
+						mii_mem_access(g_mii, SWINTCXROMOFF, &sw, true, true);
                         } else {
                             printf("Disk UI: failed to mount disk to emulator\n");
                         }
@@ -357,6 +368,14 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
     
     if (state == DISK_UI_HIDDEN) {
         return;
+    }
+
+    // If we're drawing into a different buffer than last time (double-buffering),
+    // force a full redraw so the UI persists across buffer flips.
+    if (framebuffer != g_last_framebuffer) {
+        ui_dirty = true;
+        ui_rendered = false;
+        g_last_framebuffer = framebuffer;
     }
     
     // Only redraw if dirty or not yet rendered
