@@ -863,20 +863,36 @@ mii_reset(
 	mii->cpu_state.reset = 1;
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
 	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
-	mii->sw_state = M_BSRWRITE | M_BSRPAGE2;
+	/*
+	 * Default soft-switch states on reset.
+	 *
+	 * INTCXROM must default ON so $C100-$CFFF maps to internal firmware.
+	 * If left OFF, we map to the (empty) CARD ROM area on RP2350 and end up
+	 * executing $00 (BRK) at $C6xx during boot, dropping into the monitor.
+	 */
+	mii->sw_state = M_BSRWRITE | M_BSRPAGE2 | M_SWINTCXROM;
 	mii_bank_poke(sw, SWSLOTC3ROM, 0);
 	mii_bank_poke(sw, SWRAMRD, 0);
 	mii_bank_poke(sw, SWRAMWRT, 0);
 	mii_bank_poke(sw, SWALTPZ, 0);
 	mii_bank_poke(sw, SW80STORE, 0);
 	mii_bank_poke(sw, SW80COL, 0);
+	mii_bank_poke(sw, SWINTCXROM, 0x80);
 	mii_bank_poke(sw, SWRAMWORKS_BANK, 0);
 	mii->mem_dirty = 1;
 	if (cold) {
 		/*  these HAS to be reset in that state somehow */
-		mii_bank_poke(sw, SWINTCXROM, 0);
-		uint8_t z[2] = {0x55,0x55};
-		mii_bank_write(main, 0x3f2, z, 2);
+		/* keep INTCXROM on for cold boot as well */
+		/*
+		 * Apple IIe ROM uses $03F2-$03F4 to detect and execute a WARM start.
+		 * If we leave a valid signature here, the ROM will skip cold init
+		 * (no "Apple //e" banner, no screen clear) and jump straight into BASIC.
+		 *
+		 * For a true cold boot experience, invalidate the warm-start signature
+		 * and keep the vector low byte at 0 to avoid accidental indirect jumps.
+		 */
+		uint8_t warm_start_sig[3] = { 0x00, 0x00, 0x00 };
+		mii_bank_write(main, 0x3f2, warm_start_sig, sizeof(warm_start_sig));
 	//	mii_bank_write(main, 0x3fe, z, 2); // also reset IRQ vectors
 	}
 	mii->mem_dirty = 1;

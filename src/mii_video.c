@@ -1373,60 +1373,75 @@ mii_video_render_text40_rp2350(
 		int fb_width)
 {
 	mii_bank_t *main_bank = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t *aux_bank = &mii->bank[MII_VIDEO_BANK];
 	mii_video_t *video = &mii->video;
 	const uint8_t *char_rom = video->rom ? video->rom->rom : NULL;
 	
 	if (!char_rom) {
 		return;
 	}
+	uint32_t sw = mii->sw_state;
+	bool page2 = SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
+	uint16_t base_addr = 0x400 + (0x400 * page2);
+	bool col80 = SWW_GETSTATE(sw, SW80COL);
+	bool altset = SWW_GETSTATE(sw, SWALTCHARSET);
+	const uint8_t *rom_base = char_rom;
+	if (video->rom && video->rom->len > (4 * 1024) && video->rom_bank)
+		rom_base += (4 * 1024);
 	
-	// Text screen is 40x24 characters
-	// Each character is 7x8 pixels, but we render at 280x192 logical
-	// then scale to 320x240 (1.14x horizontal, 1.25x vertical)
+	// Text screen is 40x24 (or 80x24 if SW80COL is on)
+	// Render at 192 lines and vertically center (24 pixel offset)
 	
 	for (int row = 0; row < 24; row++) {
 		// Apple II text memory is interleaved
-		uint16_t line_addr = 0x400 + (row & 7) * 0x80 + (row / 8) * 0x28;
-		
-		for (int col = 0; col < 40; col++) {
-			uint8_t c = main_bank->mem[line_addr + col];  // Direct memory access
-			
-			// Flash handling: characters $40-$7F alternate with $00-$3F
-			// This matches the original emulator behavior
-			int flash = (mii->video.frame_count & 0x10) ? -0x40 : 0x40;
-			if (c >= 0x40 && c <= 0x7F) {
-				c = c + flash;  // Toggle between $40-$7F and $00-$3F
+		uint16_t line_addr = base_addr + (row & 7) * 0x80 + (row / 8) * 0x28;
+		int columns = col80 ? 80 : 40;
+
+		for (int x = 0; x < columns; x++) {
+			uint8_t c;
+			if (col80) {
+				// 80-col text is interleaved between MAIN/AUX banks
+				c = mii_bank_peek((x & 1) ? main_bank : aux_bank, line_addr + (x >> 1));
+			} else {
+				c = mii_bank_peek(main_bank, line_addr + x);
 			}
-			
-			// Character ROM lookup: character code * 8
-			const uint8_t *char_data = char_rom + (c << 3);
-			
-			// Render 8 scanlines per character row
-			// No scaling - render at native Apple II resolution (192 lines)
-			// Centered vertically: (240 - 192) / 2 = 24 pixel offset
+
+			// Flash handling matches the original renderer
+			if (!altset) {
+				int flash = (mii->video.frame_count & 0x10) ? -0x40 : 0x40;
+				if (c >= 0x40 && c <= 0x7F)
+					c = (int)c + flash;
+			}
+
+			const uint8_t *char_data = rom_base + (c << 3);
+
 			for (int cy = 0; cy < 8; cy++) {
 				uint8_t bits = char_data[cy];
-				
-				// Native Y position + 24 pixel vertical offset to center
 				int fb_y = 24 + row * 8 + cy;
-				if (fb_y >= 240) continue;
-				
-				// Calculate framebuffer X base
-				int fb_x_base = col * 8;
-				
-				// 7 pixels per character, bit 0 = leftmost
-				// ROM stores: 1=black, 0=white
-				for (int cx = 0; cx < 7; cx++) {
-					bool pixel = (bits >> cx) & 1;
-					int fb_x = fb_x_base + cx;
-					if (fb_x < fb_width) {
-						fb[fb_y * fb_width + fb_x] = pixel ? 0 : 15;  // 1=black, 0=white
+				if (fb_y >= 240)
+					continue;
+
+				if (!col80) {
+					int fb_x_base = x * 8;
+					for (int cx = 0; cx < 7; cx++) {
+						bool pixel = (bits >> cx) & 1;
+						int fb_x = fb_x_base + cx;
+						if (fb_x < fb_width)
+							fb[fb_y * fb_width + fb_x] = pixel ? 0 : 15;
 					}
-				}
-				// 8th pixel is background (black) to complete the 8-pixel cell
-				int fb_x = fb_x_base + 7;
-				if (fb_x < fb_width) {
-					fb[fb_y * fb_width + fb_x] = 0;  // Black background
+					int fb_x = fb_x_base + 7;
+					if (fb_x < fb_width)
+						fb[fb_y * fb_width + fb_x] = 0;
+				} else {
+					// 80 columns won't fit natively in 320px; compress to 4px/char
+					int fb_x_base = x * 4;
+					for (int px = 0; px < 4; px++) {
+						int bit0 = px * 2;
+						bool pixel = ((bits >> bit0) & 1) | ((bits >> (bit0 + 1)) & 1);
+						int fb_x = fb_x_base + px;
+						if (fb_x < fb_width)
+							fb[fb_y * fb_width + fb_x] = pixel ? 0 : 15;
+					}
 				}
 			}
 		}
@@ -1444,46 +1459,67 @@ mii_video_render_text40_mixed_rp2350(
 		int fb_width)
 {
 	mii_bank_t *main_bank = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t *aux_bank = &mii->bank[MII_VIDEO_BANK];
 	mii_video_t *video = &mii->video;
 	const uint8_t *char_rom = video->rom ? video->rom->rom : NULL;
 	
 	if (!char_rom) return;
+	uint32_t sw = mii->sw_state;
+	bool page2 = SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
+	uint16_t base_addr = 0x400 + (0x400 * page2);
+	bool col80 = SWW_GETSTATE(sw, SW80COL);
+	bool altset = SWW_GETSTATE(sw, SWALTCHARSET);
+	const uint8_t *rom_base = char_rom;
+	if (video->rom && video->rom->len > (4 * 1024) && video->rom_bank)
+		rom_base += (4 * 1024);
 	
 	// In mixed mode, only render the bottom 4 text rows (rows 20-23)
 	// These correspond to Apple II lines 160-191
 	for (int row = 20; row < 24; row++) {
 		// Apple II text memory is interleaved
-		uint16_t line_addr = 0x400 + (row & 7) * 0x80 + (row / 8) * 0x28;
-		
-		for (int col = 0; col < 40; col++) {
-			uint8_t c = main_bank->mem[line_addr + col];
-			
-			// Flash handling
-			int flash = (mii->video.frame_count & 0x10) ? -0x40 : 0x40;
-			if (c >= 0x40 && c <= 0x7F) {
-				c = c + flash;
+		uint16_t line_addr = base_addr + (row & 7) * 0x80 + (row / 8) * 0x28;
+		int columns = col80 ? 80 : 40;
+
+		for (int x = 0; x < columns; x++) {
+			uint8_t c;
+			if (col80)
+				c = mii_bank_peek((x & 1) ? main_bank : aux_bank, line_addr + (x >> 1));
+			else
+				c = mii_bank_peek(main_bank, line_addr + x);
+
+			if (!altset) {
+				int flash = (mii->video.frame_count & 0x10) ? -0x40 : 0x40;
+				if (c >= 0x40 && c <= 0x7F)
+					c = (int)c + flash;
 			}
-			
-			const uint8_t *char_data = char_rom + (c << 3);
-			
+
+			const uint8_t *char_data = rom_base + (c << 3);
 			for (int cy = 0; cy < 8; cy++) {
 				uint8_t bits = char_data[cy];
-				
 				int fb_y = 24 + row * 8 + cy;
-				if (fb_y >= 240) continue;
-				
-				int fb_x_base = col * 8;
-				
-				for (int cx = 0; cx < 7; cx++) {
-					bool pixel = (bits >> cx) & 1;
-					int fb_x = fb_x_base + cx;
-					if (fb_x < fb_width) {
-						fb[fb_y * fb_width + fb_x] = pixel ? 0 : 15;
+				if (fb_y >= 240)
+					continue;
+
+				if (!col80) {
+					int fb_x_base = x * 8;
+					for (int cx = 0; cx < 7; cx++) {
+						bool pixel = (bits >> cx) & 1;
+						int fb_x = fb_x_base + cx;
+						if (fb_x < fb_width)
+							fb[fb_y * fb_width + fb_x] = pixel ? 0 : 15;
 					}
-				}
-				int fb_x = fb_x_base + 7;
-				if (fb_x < fb_width) {
-					fb[fb_y * fb_width + fb_x] = 0;
+					int fb_x = fb_x_base + 7;
+					if (fb_x < fb_width)
+						fb[fb_y * fb_width + fb_x] = 0;
+				} else {
+					int fb_x_base = x * 4;
+					for (int px = 0; px < 4; px++) {
+						int bit0 = px * 2;
+						bool pixel = ((bits >> bit0) & 1) | ((bits >> (bit0 + 1)) & 1);
+						int fb_x = fb_x_base + px;
+						if (fb_x < fb_width)
+							fb[fb_y * fb_width + fb_x] = pixel ? 0 : 15;
+					}
 				}
 			}
 		}
