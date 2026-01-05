@@ -87,33 +87,12 @@ _mii_floppy_motor_off_cb(
 }
 
 /*
- * This (tries) to be called every cycle, it never happends in practice,
- * as all the instructions can use multiple cycles by CPU runs.
- * But I can retreive the overshoot cycles and call the LSS as many times
- * as needed to 'catch up'
+ * Forward declaration - LSS callback is implemented after the ROM table
  */
 static uint64_t
 _mii_floppy_lss_cb(
 		mii_t * mii,
-		void * param )
-{
-	mii_card_disk2_t *c = param;
-	mii_floppy_t *f 	= &c->floppy[c->selected];
-	
-	if (!f->motor)
-		return 0;	// stop timer, motor is now off
-	// delta is ALWAYS negative, or zero here
-	int32_t delta = mii_timer_get(mii, c->timer_lss);
-	// Run LSS every cycle - timing critical for disk reads
-	uint64_t ret = -delta + 1;
-	int ticks = (-delta + 1) * 2;  // 2 ticks per cycle
-	
-	while (ticks > 0) {
-		_mii_disk2_lss_tick(c);
-		ticks--;
-	}
-	return ret;
-}
+		void * param );
 
 static uint8_t
 _mii_disk2_switch_track(
@@ -584,6 +563,145 @@ static const uint8_t SEQUENCER_ROM_16[256] __attribute__((unused)) = {
 	// 0     1     1     3     4	 5     6     7     8     9     A     B     C     D     E     F
 };
 
+/*
+ * RP2350 optimized LSS callback - avoids modulo operations and signal tracing
+ */
+#ifdef MII_RP2350
+/*
+ * Ultra-optimized LSS tick for RP2350 - minimizes branches and memory access
+ * This is the hottest code path during disk access (~34k calls/frame)
+ */
+static inline void __attribute__((always_inline, hot))
+_mii_disk2_lss_tick_fast(
+	mii_card_disk2_t * __restrict__ c,
+	mii_floppy_t * __restrict__ f,
+	const uint8_t track_id,
+	const uint8_t * __restrict__ track,
+	const uint32_t bit_count)
+{
+	c->clock += 4;
+
+	uint8_t rp = 0;
+	const uint8_t clock_tick = (c->clock >= f->bit_timing);
+	
+	if (clock_tick) {
+		const uint32_t bp = f->bit_position;
+		const uint8_t bit = (track[bp >> 3] >> (7 - (bp & 7))) & 1;
+		c->head = (c->head << 1) | bit;
+		
+		if ((c->head & 0xf) != 0) {
+			f->random = 0;
+			rp = (c->head >> 1) & 1;
+		} else if (!f->random) {
+			// Random bit needed - use LFSR (rare path)
+			f->random = 1;
+			static uint32_t lfsr = 0xACE1u;
+			lfsr = (lfsr >> 1) ^ (-(lfsr & 1u) & 0xB400u);
+			f->random_position = lfsr & 0xFFFF;
+			if (f->random_position >= bit_count)
+				f->random_position = 0;
+			rp = (f->track_data[MII_FLOPPY_NOISE_TRACK][f->random_position >> 3] >> (f->random_position & 7)) & 1;
+			f->random_position++;
+		} else {
+			rp = (f->track_data[MII_FLOPPY_NOISE_TRACK][f->random_position >> 3] >> (f->random_position & 7)) & 1;
+			f->random_position++;
+			if (f->random_position >= bit_count)
+				f->random_position = 0;
+		}
+	}
+	
+	// Compute new mode - combine RP and QA bits
+	const uint8_t qa = (c->data_register >> 7) & 1;
+	c->lss_mode = (c->lss_mode & 0x0C) | (rp << RP_BIT) | (qa << QA_BIT);
+
+	// ROM lookup and action
+	const uint8_t cmd = lss_rom16s[c->lss_mode][c->lss_state];
+	c->lss_state = cmd >> 4;
+	
+	const uint8_t action = cmd & 0xF;
+	if (action & 0b1000) {
+		const uint8_t op = action & 0b0011;
+		if (op == 1) {
+			c->data_register = (c->data_register << 1) | ((action >> 2) & 1);
+		} else if (op == 2) {
+			c->data_register = (c->data_register >> 1) | (f->write_protected ? 0x80 : 0);
+		} else if (op == 3) {
+			c->data_register = c->write_register;
+			f->seed_dirty++;
+		}
+	} else if (action == 0) {
+		c->data_register = 0;
+	}
+
+	// Advance bit position on clock tick
+	if (clock_tick) {
+		c->clock -= f->bit_timing;
+		f->bit_position++;
+		if (f->bit_position >= bit_count)
+			f->bit_position = 0;
+	}
+}
+
+static uint64_t
+_mii_floppy_lss_cb(
+		mii_t * mii,
+		void * param )
+{
+	mii_card_disk2_t *c = param;
+	mii_floppy_t *f = &c->floppy[c->selected];
+	
+	if (!f->motor)
+		return 0;
+	
+	int32_t delta = mii_timer_get(mii, c->timer_lss);
+	uint64_t ret = -delta + 1;
+	int ticks = (-delta + 1) * 2;
+	
+	const uint8_t track_id = f->track_id[f->qtrack];
+	uint8_t *track = f->track_data[track_id];
+	
+	if (track == NULL)
+		return ret;
+	
+	const uint32_t bit_count = f->tracks[track_id].bit_count;
+	
+	// Unroll loop 4x for better pipelining
+	while (ticks >= 4) {
+		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
+		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
+		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
+		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
+		ticks -= 4;
+	}
+	while (ticks > 0) {
+		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
+		ticks--;
+	}
+	return ret;
+}
+#else
+// Non-RP2350 version uses the full _mii_disk2_lss_tick with VCD support
+static uint64_t
+_mii_floppy_lss_cb(
+		mii_t * mii,
+		void * param )
+{
+	mii_card_disk2_t *c = param;
+	mii_floppy_t *f 	= &c->floppy[c->selected];
+	
+	if (!f->motor)
+		return 0;
+	int32_t delta = mii_timer_get(mii, c->timer_lss);
+	uint64_t ret = -delta + 1;
+	int ticks = (-delta + 1) * 2;
+	
+	while (ticks > 0) {
+		_mii_disk2_lss_tick(c);
+		ticks--;
+	}
+	return ret;
+}
+#endif
 
 static void
 _mii_disk2_lss_tick(

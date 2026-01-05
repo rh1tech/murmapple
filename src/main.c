@@ -501,6 +501,12 @@ int main() {
     uint16_t last_pc = 0;
     uint32_t boot_time_us = time_us_32();  // Track real wall-clock time
 
+    // Performance metrics
+    uint32_t total_cpu_time = 0;      // Time spent in CPU emulation
+    uint32_t total_input_time = 0;    // Time spent polling input
+    uint32_t total_cycles_run = 0;    // Actual cycles executed
+    uint32_t metrics_start_us = time_us_32();
+
     // Debug state (printed from core0 to avoid disturbing HDMI DMA on core1)
     uint32_t last_mode_key = 0xffffffffu;
     uint32_t last_fb_hash = 0;
@@ -510,6 +516,7 @@ int main() {
         uint32_t frame_start = time_us_32();
         
         // Poll keyboard at start of frame
+        uint32_t input_start = time_us_32();
         ps2kbd_tick();
         process_keyboard();
         
@@ -539,34 +546,26 @@ int main() {
                 last_printed = 0;
             }
         }
+        uint32_t input_end = time_us_32();
+        total_input_time += (input_end - input_start);
         
         // Run CPU for one frame worth of cycles.
         // VBL timing is now handled by mii_video_vbl_timer_cb which toggles
         // SWVBL at the proper cycle counts during execution. This allows
         // games that wait for VBL transitions to work correctly.
+        uint32_t cpu_start = time_us_32();
+        uint64_t cycles_before = g_mii.cpu.total_cycle;
         mii_run_cycles(&g_mii, cycles_per_frame);
+        uint64_t cycles_after = g_mii.cpu.total_cycle;
+        uint32_t cpu_end = time_us_32();
+        
+        total_cpu_time += (cpu_end - cpu_start);
+        total_cycles_run += (uint32_t)(cycles_after - cycles_before);
 
         // frame_count is now incremented by the VBL timer callback
         
         uint32_t frame_end = time_us_32();
         total_emu_time += (frame_end - frame_start);
-
-        // DEBUG: Print every frame for first 10 seconds after disk boot
-        static uint32_t disk_boot_frame = 0;
-        static bool disk_booted = false;
-        if (!disk_booted && g_mii.cpu.PC >= 0xC600 && g_mii.cpu.PC < 0xC700) {
-            disk_booted = true;
-            disk_boot_frame = frame_count;
-            printf("=== DISK BOOT DETECTED at frame %lu ===\n", frame_count);
-        }
-        if (disk_booted && (frame_count - disk_boot_frame) < 3600) {
-            // Print every 10 frames for 60 seconds (3600 frames)
-            if ((frame_count - disk_boot_frame) % 10 == 0) {
-                uint32_t wall_ms = (time_us_32() - boot_time_us) / 1000;
-                printf("F%lu W=%lums PC=$%04X cyc=%lu\n", 
-                       frame_count - disk_boot_frame, wall_ms, g_mii.cpu.PC, g_mii.cpu.cycle);
-            }
-        }
 
         // Throttle to real time so the emulator doesn't run too fast.
         uint32_t elapsed = frame_end - frame_start;
@@ -576,7 +575,7 @@ int main() {
         
         frame_count++;
 
-        // Video/mode + framebuffer debug ~once per second (60Hz)
+        // Video mode change detection - only print when mode changes
         if ((frame_count % 60) == 0) {
             uint32_t sw = g_mii.sw_state;
             bool store80 = !!(sw & M_SW80STORE);
@@ -602,66 +601,45 @@ int main() {
             if (mode_key != last_mode_key) {
                 last_mode_key = mode_key;
                 const char *label = text_mode ? "TEXT" : (hires ? ((dhires && col80) ? "DHGR" : (mixed ? "HGR+MIXED" : "HGR")) : "LORES");
-                printf("VIDEO: text=%d hires=%d mixed=%d page2=%d(store80=%d raw=%d) col80=%d dhires=%d an3=%d -> %s\n",
-                    text_mode, hires, mixed, page2_eff, store80, page2_raw, col80, dhires, an3, label);
-            }
-            
-            // Dump input state every second
-            {
-                mii_bank_t *sw_bank = &g_mii.bank[MII_BANK_SW];
-                uint32_t emu_sec = frame_count / 60;
-                uint32_t wall_sec = (time_us_32() - boot_time_us) / 1000000;
-                printf("EMU=%lus WALL=%lus INPUT: KBD=%02X AKD=%02X BTN=%02X/%02X/%02X\n",
-                       emu_sec, wall_sec,
-                       mii_bank_peek(sw_bank, SWKBD),
-                       mii_bank_peek(sw_bank, SWAKD),
-                       mii_bank_peek(sw_bank, 0xc061),
-                       mii_bank_peek(sw_bank, 0xc062),
-                       mii_bank_peek(sw_bank, 0xc063));
-            }
-
-            if (g_hdmi_front_buffer) {
-                uint32_t nonzero = 0;
-                uint32_t hash = 2166136261u; // FNV-1a 32-bit
-                uint32_t hist16[16] = {0};
-
-                // Sample within active 192-line Apple II region (y=24..215)
-                for (int y = 24; y < (24 + 192); y += 8) {
-                    const uint8_t *row = g_hdmi_front_buffer + (y * 320);
-                    for (int x = 0; x < 320; x += 8) {
-                        uint8_t v = row[x];
-                        nonzero += (v != 0);
-                        if (v < 16) hist16[v]++;
-                        hash ^= v;
-                        hash *= 16777619u;
-                    }
-                }
-
-                if ((int)nonzero != last_fb_nonzero || hash != last_fb_hash) {
-                    last_fb_nonzero = (int)nonzero;
-                    last_fb_hash = hash;
-                    printf("FB: nonzero=%lu/960 hash=%08lx c0=%lu c15=%lu\n",
-                        (unsigned long)nonzero,
-                        (unsigned long)hash,
-                        (unsigned long)hist16[0],
-                        (unsigned long)hist16[15]);
-                }
-            }
-
-            if (text_mode) {
-                const mii_rom_t *r = g_mii.video.rom;
-                if (!r || !r->rom) {
-                    printf("WARN: TEXT mode but char ROM missing (desc=%p)\n", (void *)r);
-                }
+                printf("VIDEO: %s\n", label);
             }
         }
         
-        // Print stats every 300 frames (5 seconds) to reduce serial traffic
+        // Print detailed performance metrics every 300 frames (5 seconds)
         if ((frame_count % 300) == 0) {
-            uint32_t avg_emu_us = total_emu_time / 300;
-            printf("Frame %lu: %lu us/frame, PC: $%04X\n", 
-                   frame_count, avg_emu_us, g_mii.cpu.PC);
+            uint32_t elapsed_us = time_us_32() - metrics_start_us;
+            uint32_t avg_frame_us = total_emu_time / 300;
+            uint32_t avg_cpu_us = total_cpu_time / 300;
+            uint32_t avg_input_us = total_input_time / 300;
+            uint32_t avg_other_us = avg_frame_us - avg_cpu_us - avg_input_us;
+            
+            // Calculate effective MHz
+            // cycles_run in 5 seconds -> cycles/sec -> MHz
+            uint32_t cycles_per_sec = (uint32_t)((uint64_t)total_cycles_run * 1000000ULL / elapsed_us);
+            uint32_t effective_khz = cycles_per_sec / 1000;
+            
+            // Calculate cycles per microsecond of CPU time (efficiency)
+            uint32_t cycles_per_cpu_us = total_cpu_time > 0 ? total_cycles_run / total_cpu_time : 0;
+            
+            // Target is 1.023 MHz = 1023 kHz
+            uint32_t percent_speed = (effective_khz * 100) / 1023;
+            
+            printf("\n=== PERF Frame %lu (%.1fs) ===\n", 
+                   frame_count, (float)elapsed_us / 1000000.0f);
+            printf("Frame: %lu us (CPU: %lu, Input: %lu, Other: %lu)\n",
+                   avg_frame_us, avg_cpu_us, avg_input_us, avg_other_us);
+            printf("Speed: %lu kHz (%lu%% of 1.023 MHz), %lu cyc/us\n",
+                   effective_khz, percent_speed, cycles_per_cpu_us);
+            printf("PC: $%04X, Total cycles: %llu\n",
+                   g_mii.cpu.PC, g_mii.cpu.total_cycle);
+            printf("=============================\n\n");
+            
+            // Reset counters
             total_emu_time = 0;
+            total_cpu_time = 0;
+            total_input_time = 0;
+            total_cycles_run = 0;
+            metrics_start_us = time_us_32();
         }
     }
     

@@ -119,3 +119,18 @@ mii_vcd_add_signal(
 	(void)vcd; (void)sig; (void)width; (void)name;
 	return -1;  // VCD disabled
 }
+int
+mii_vcd_start(
+		mii_vcd_t *vcd)
+{
+	(void)vcd;
+	return -1;  // VCD disabled
+}
+
+int
+mii_vcd_stop(
+		mii_vcd_t *vcd)
+{
+	(void)vcd;
+	return 0;
+}

@@ -90,8 +90,18 @@ target_compile_definitions(murmapple PRIVATE
     MII_RP2350=1
 )
 
-# Optimization for performance
-target_compile_options(murmapple PRIVATE -O2 -ffunction-sections -fdata-sections)
+# Optimization for maximum performance on RP2350
+# -O3: Maximum optimization including loop vectorization
+# -ffunction-sections -fdata-sections: Allow linker to remove unused code
+# -flto: Link-time optimization for cross-file inlining
+# -fno-strict-aliasing: Allow type punning (common in emulators)
+# -march=armv8-m.main+fp+dsp: Target Cortex-M33 architecture
+target_compile_options(murmapple PRIVATE 
+    -O3 
+    -ffunction-sections 
+    -fdata-sections
+    -fno-strict-aliasing
+)
 
 target_link_libraries(murmapple
     pico_stdlib

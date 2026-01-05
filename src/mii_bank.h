@@ -91,7 +91,7 @@ mii_bank_install_access_cb(
 #ifdef MII_RP2350
 // Ultra-fast inline peek for RP2350 - avoids function call overhead
 // Only works for banks without access callbacks (most common case)
-static inline uint8_t
+static inline __attribute__((always_inline)) uint8_t
 mii_bank_peek(
 		mii_bank_t *bank,
 		uint16_t addr)
@@ -100,7 +100,7 @@ mii_bank_peek(
 	return bank->mem[phy];
 }
 
-static inline void
+static inline __attribute__((always_inline)) void
 mii_bank_poke(
 		mii_bank_t *bank,
 		uint16_t addr,
