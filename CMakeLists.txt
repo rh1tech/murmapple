@@ -69,6 +69,7 @@ add_executable(murmapple
     src/mii_dd_stub.c
     src/mii_floppy.c
     src/mii_disk2.c
+    src/mii_disk2_lss_asm.S
     src/mii_dsk.c
     src/mii_nib.c
     src/mii_woz.c

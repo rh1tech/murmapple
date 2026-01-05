@@ -17,6 +17,10 @@
 #include "mii_woz.h"
 #include "mii_disk2.h"
 
+#ifdef MII_RP2350
+#include "mii_disk2_asm.h"
+#endif
+
 // RP2350: Use PSRAM for large allocations
 #ifdef MII_RP2350
 // PSRAM allocation for disk2 card - the structure is ~500KB!
@@ -642,6 +646,103 @@ _mii_disk2_lss_tick_fast(
 	}
 }
 
+// Set to 1 to use assembly LSS tick, 0 for C version
+// NOTE: Assembly disabled until offsets are verified at runtime
+#define USE_LSS_ASM 0
+
+/*
+ * Ultra-optimized batch LSS processing.
+ * Key insight: most ticks don't trigger bit read (clock < bit_timing).
+ * We process multiple ticks with minimal overhead.
+ */
+static void __attribute__((hot, flatten))
+_mii_disk2_lss_batch(
+	mii_card_disk2_t * __restrict__ c,
+	mii_floppy_t * __restrict__ f,
+	const uint8_t * __restrict__ track,
+	const uint32_t bit_count,
+	int ticks)
+{
+	// Local copies for register allocation
+	uint16_t clock = c->clock;
+	uint8_t head = c->head;
+	uint8_t lss_mode = c->lss_mode;
+	uint8_t lss_state = c->lss_state;
+	uint8_t data_reg = c->data_register;
+	uint32_t bp = f->bit_position;
+	const uint8_t bit_timing = f->bit_timing;
+	const uint8_t write_protected = f->write_protected;
+	
+	// Keep pointers to the ROM table in register
+	const uint8_t (*lss_rom)[16] = lss_rom16s;
+	
+	// Prefetch the first track byte
+	uint8_t current_byte = track[bp >> 3];
+	uint32_t current_byte_idx = bp >> 3;
+	
+	while (ticks > 0) {
+		clock += 4;
+		uint8_t rp = 0;
+		
+		if (__builtin_expect(clock >= bit_timing, 0)) {
+			// Clock tick - read bit from track
+			const uint32_t byte_idx = bp >> 3;
+			
+			// Only reload byte if we moved to a new byte
+			if (__builtin_expect(byte_idx != current_byte_idx, 0)) {
+				current_byte_idx = byte_idx;
+				current_byte = track[byte_idx];
+				// Prefetch next byte
+				__builtin_prefetch(&track[byte_idx + 1], 0, 3);
+			}
+			
+			const uint8_t bit = (current_byte >> (7 - (bp & 7))) & 1;
+			head = ((head << 1) | bit) & 0x0F;
+			
+			if ((head & 0x0F) != 0) {
+				rp = (head >> 1) & 1;
+			}
+			
+			clock -= bit_timing;
+			bp++;
+			if (__builtin_expect(bp >= bit_count, 0))
+				bp = 0;
+		}
+		
+		// Compute mode and do ROM lookup
+		const uint8_t qa = data_reg >> 7;
+		lss_mode = (lss_mode & 0x0C) | rp | (qa << 1);
+		
+		const uint8_t cmd = lss_rom[lss_mode][lss_state];
+		lss_state = cmd >> 4;
+		
+		const uint8_t action = cmd & 0x0F;
+		if (__builtin_expect(action & 0x08, 1)) {
+			const uint8_t op = action & 0x03;
+			if (op == 1) {
+				data_reg = (data_reg << 1) | ((action >> 2) & 1);
+			} else if (op == 2) {
+				data_reg = (data_reg >> 1) | (write_protected ? 0x80 : 0);
+			} else if (op == 3) {
+				data_reg = c->write_register;
+				f->seed_dirty++;
+			}
+		} else if (action == 0) {
+			data_reg = 0;
+		}
+		
+		ticks--;
+	}
+	
+	// Write back
+	c->clock = clock;
+	c->head = head;
+	c->lss_mode = lss_mode;
+	c->lss_state = lss_state;
+	c->data_register = data_reg;
+	f->bit_position = bp;
+}
+
 static uint64_t
 _mii_floppy_lss_cb(
 		mii_t * mii,
@@ -665,18 +766,28 @@ _mii_floppy_lss_cb(
 	
 	const uint32_t bit_count = f->tracks[track_id].bit_count;
 	
-	// Unroll loop 4x for better pipelining
-	while (ticks >= 4) {
-		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
-		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
-		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
-		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
-		ticks -= 4;
+#if USE_LSS_ASM
+	// Use assembly version - 8x unroll for maximum throughput
+	const uint8_t *lss_rom = &lss_rom16s[0][0];
+	while (ticks >= 8) {
+		mii_disk2_lss_tick_asm(c, f, track, bit_count, lss_rom);
+		mii_disk2_lss_tick_asm(c, f, track, bit_count, lss_rom);
+		mii_disk2_lss_tick_asm(c, f, track, bit_count, lss_rom);
+		mii_disk2_lss_tick_asm(c, f, track, bit_count, lss_rom);
+		mii_disk2_lss_tick_asm(c, f, track, bit_count, lss_rom);
+		mii_disk2_lss_tick_asm(c, f, track, bit_count, lss_rom);
+		mii_disk2_lss_tick_asm(c, f, track, bit_count, lss_rom);
+		mii_disk2_lss_tick_asm(c, f, track, bit_count, lss_rom);
+		ticks -= 8;
 	}
 	while (ticks > 0) {
-		_mii_disk2_lss_tick_fast(c, f, track_id, track, bit_count);
+		mii_disk2_lss_tick_asm(c, f, track, bit_count, lss_rom);
 		ticks--;
 	}
+#else
+	// Use optimized batch processing
+	_mii_disk2_lss_batch(c, f, track, bit_count, ticks);
+#endif
 	return ret;
 }
 #else

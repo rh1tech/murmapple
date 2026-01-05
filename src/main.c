@@ -25,8 +25,13 @@
 #include "mii_analog.h"
 #include "mii_speaker.h"
 #include "mii_slot.h"
+#include "mii_disk2.h"
 #include "disk_loader.h"
 #include "disk_ui.h"
+
+#ifdef MII_RP2350
+#include "mii_disk2_asm.h"
+#endif
 
 // Special key codes from keyboard driver
 #define KEY_F11 0xFB
@@ -397,6 +402,11 @@ int main() {
         printf("ERROR: Failed to install Disk II controller: %d\n", slot_res);
     } else {
         printf("Disk II controller installed in slot 6\n");
+        
+#ifdef MII_RP2350
+        // Print struct offsets for assembly verification
+        mii_disk2_print_offsets();
+#endif
         
         // Debug: dump first few bytes of slot 6 ROM
         mii_bank_t *card_rom = &g_mii.bank[MII_BANK_CARD_ROM];
