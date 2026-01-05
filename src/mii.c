@@ -631,14 +631,9 @@ mii_access_keyboard(
 			uint8_t r = mii_bank_peek(sw, SWAKD);
 			if (!write)
 				*byte = r;
-			// Clear strobe (bit 7)
+			// Clear strobe (bit 7) - do NOT re-latch here
+			// Games expect strobe to stay clear until a new key event
 			mii_bank_poke(sw, SWAKD, r & 0x7f);
-			// If a key is still physically held, re-latch it
-			uint8_t held = get_held_key();
-			if (held) {
-				mii_bank_poke(sw, SWAKD, held | 0x80);
-				mii_bank_poke(sw, SWKBD, held & 0x7f);
-			}
 		}	break;
 		case 0xc061 ... 0xc063: // Push Button 0, 1, 2 (Apple Keys)
 			res = true;

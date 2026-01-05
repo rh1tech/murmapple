@@ -171,6 +171,17 @@ static void process_keyboard(void) {
             }
         }
     }
+    
+    // Re-latch held key each frame if strobe is clear (game processed previous key)
+    // This supports games that poll keyboard state while key is held
+    if (currently_held_key != 0) {
+        mii_bank_t *sw = &g_mii.bank[MII_BANK_SW];
+        uint8_t strobe = mii_bank_peek(sw, 0xc010);
+        if (!(strobe & 0x80)) {
+            // Strobe is clear, game processed the key - re-latch if still held
+            mii_keypress(&g_mii, currently_held_key);
+        }
+    }
 }
 
 // Call this to check if we should re-latch a held key
