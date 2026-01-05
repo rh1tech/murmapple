@@ -20,6 +20,7 @@
 #include "mii_dsk.h"
 #include "mii_nib.h"
 #include "mii_woz.h"
+#include "mii_video.h"
 
 // Global state
 disk_entry_t g_disk_list[MAX_DISK_IMAGES];
@@ -474,7 +475,8 @@ static uint8_t disk_type_to_mii_format(disk_type_t type, const char *filename) {
 static mii_dd_file_t g_dd_files[2] = {0};
 
 // Mount a loaded disk image to the emulator
-int disk_mount_to_emulator(int drive, mii_t *mii, int slot) {
+// preserve_state: if true, keeps motor/head position for disk swap during game
+int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state) {
     if (drive < 0 || drive > 1) {
         printf("Invalid drive: %d\n", drive);
         return -1;
@@ -508,8 +510,8 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot) {
     file->size = disk->size;
     file->dd = NULL;  // Not associated with a specific mii_dd_t
     
-        printf("Mounting %s to drive %d (format=%d, size=%lu)\n",
-            disk->filename, drive + 1, file->format, (unsigned long)file->size);
+    printf("Mounting %s to drive %d (format=%d, size=%lu, preserve=%d)\n",
+           disk->filename, drive + 1, file->format, (unsigned long)file->size, preserve_state);
 
     // Open the image on SD
     FIL fp;
@@ -520,8 +522,24 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot) {
     }
     printf("Reading disk from SD: %s\n", path);
     
+    // Save drive state if we need to preserve it (for INSERT mode)
+    uint8_t saved_motor = floppy->motor;
+    uint8_t saved_stepper = floppy->stepper;
+    uint8_t saved_qtrack = floppy->qtrack;
+    uint32_t saved_bit_position = floppy->bit_position;
+    
     // Initialize the floppy (clears all tracks)
     mii_floppy_init(floppy);
+    
+    // Restore drive state if preserving (INSERT mode)
+    if (preserve_state) {
+        floppy->motor = saved_motor;
+        floppy->stepper = saved_stepper;
+        floppy->qtrack = saved_qtrack;
+        floppy->bit_position = saved_bit_position;
+        printf("Preserved drive state: motor=%d qtrack=%d bit_pos=%lu\n",
+               saved_motor, saved_qtrack, (unsigned long)saved_bit_position);
+    }
 
     // Load the disk image into the floppy structure without PSRAM staging
     res = -1;
@@ -552,6 +570,11 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot) {
     // Enable the boot signature so the slot is now bootable
     int enable = 1;
     mii_slot_command(mii, slot, MII_SLOT_D2_SET_BOOT, &enable);
+    
+    // Reset VBL timer after disk loading - the long SD card read
+    // may have caused the timer to accumulate negative cycles
+    printf("DEBUG: About to call mii_video_reset_vbl_timer\n");
+    mii_video_reset_vbl_timer(mii);
     
     printf("Disk %s mounted successfully to drive %d\n", disk->filename, drive + 1);
     return 0;

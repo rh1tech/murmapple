@@ -641,19 +641,52 @@ mii_video_vbl_timer_cb(
 	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 	mii_video_t * video = &mii->video;
 	
-	// Toggle between visible (VBL=0x80) and vblank (VBL=0x00)
+	// Apple II VBL convention:
+	// - During visible area: VBL bit 7 = 0 (value 0x00)
+	// - During vblank: VBL bit 7 = 1 (value 0x80)
+	// vbl_phase: 0 = visible, 1 = vblank
 	if (video->vbl_phase == 0) {
-		// End of visible area, entering vblank
-		mii_bank_poke(sw, SWVBL, 0x00);
+		// End of visible area, entering vblank - SET bit 7
+		mii_bank_poke(sw, SWVBL, 0x80);
 		video->vbl_phase = 1;
 		video->frame_count++;
 		return (uint64_t)(MII_VBL_UP_CYCLES * mii->speed);
 	} else {
-		// End of vblank, starting visible area
-		mii_bank_poke(sw, SWVBL, 0x80);
+		// End of vblank, starting visible area - CLEAR bit 7
+		mii_bank_poke(sw, SWVBL, 0x00);
 		video->vbl_phase = 0;
 		return (uint64_t)(MII_VBL_DOWN_CYCLES * mii->speed);
 	}
+}
+
+/*
+ * Reset the VBL timer to a known good state.
+ * Call this after long operations (like disk loading) that may have
+ * caused the timer to become inactive due to accumulating negative cycles.
+ */
+void
+mii_video_reset_vbl_timer(mii_t *mii)
+{
+	mii_video_t *video = &mii->video;
+	mii_bank_t *sw = &mii->bank[MII_BANK_SW];
+	
+	int64_t old_when = mii_timer_get(mii, video->timer_id);
+	uint64_t old_last_run = mii->timer.last_run;
+	uint64_t current_cycle = mii->cpu.total_cycle + mii->cpu.cycle;
+	
+	// Reset to start of visible area
+	video->vbl_phase = 0;
+	mii_bank_poke(sw, SWVBL, 0x00);
+	
+	// Set timer to a positive value - must be > 0 for timer to run
+	mii_timer_set(mii, video->timer_id, MII_VBL_DOWN_CYCLES);
+	
+	// Reset last_run to current cycle count
+	mii->timer.last_run = current_cycle;
+	
+	printf("VBL_RESET: old_when=%lld new_when=%d old_last=%llu new_last=%llu\n",
+		   (long long)old_when, MII_VBL_DOWN_CYCLES,
+		   (unsigned long long)old_last_run, (unsigned long long)current_cycle);
 }
 
 #else // !MII_RP2350
@@ -949,8 +982,9 @@ mii_access_video(
 		case SWRDDHIRES:
 			res = true;
 			/* we OR the return flag, as the lower 7 bits are keyboard related */
-			if (!write)
+			if (!write) {
 				*byte |= mii_bank_peek(sw, addr);
+			}
 			break;
 		case SWHIRESOFF:
 		case SWHIRESON:
@@ -1858,14 +1892,34 @@ mii_video_scale_to_hdmi(
 	bool col80 = !!(sw & M_SW80COL);
 	bool dhires = !!(sw & M_SWDHIRES);
 	uint8_t an3_mode = video->an3_mode;
-	(void)an3_mode;
+	
+	// Debug: track major mode changes only (ignore memory banking bits)
+	static uint8_t last_mode = 0xFF;
+	static uint8_t last_an3 = 0xFF;
+	uint8_t current_mode = (text_mode << 4) | (hires << 3) | (mixed << 2) | (col80 << 1) | dhires;
+	if (current_mode != last_mode || an3_mode != last_an3) {
+		last_mode = current_mode;
+		last_an3 = an3_mode;
+		const char *mode_name = "?";
+		// DHGR: an3_mode 1=color, 2=mono; also traditional check with col80
+		bool is_dhgr = hires && !text_mode && dhires && (col80 || (an3_mode >= 1 && an3_mode <= 2));
+		if (text_mode) mode_name = "TEXT";
+		else if (is_dhgr) mode_name = "DHGR";
+		else if (hires) mode_name = "HGR";
+		else mode_name = "LORES";
+		printf("VIDEO MODE: %s (TEXT=%d HIRES=%d 80COL=%d DHIRES=%d AN3=%d)\n",
+			   mode_name, text_mode, hires, col80, dhires, an3_mode);
+	}
 	
 	if (text_mode) {
 		// Pure text mode
 		mii_video_render_text40_rp2350(mii, hdmi_buffer, 320);
 	} else if (hires) {
 		// Hi-res graphics mode
-		if (dhires && col80) {
+		// DHGR requires: HIRES=1, TEXT=0, DHIRES=1, and either 80COL=1 or an3_mode indicates DHGR
+		// an3_mode: 0=40col text/lores, 1=DHGR color, 2=DHGR mono, 3=80col text
+		bool is_dhgr = dhires && (col80 || (an3_mode >= 1 && an3_mode <= 2));
+		if (is_dhgr) {
 			mii_video_render_dhires_rp2350(mii, hdmi_buffer, 320);
 		} else {
 			mii_video_render_hires_rp2350(mii, hdmi_buffer, 320);

@@ -83,8 +83,9 @@ struct mii_t;
 // drive: 0 or 1 (Drive 1 or Drive 2)
 // mii: pointer to the emulator instance
 // slot: slot number where disk2 card is installed (usually 6)
+// preserve_state: if true, keeps motor/head position (for disk swap during game)
 // Returns 0 on success, -1 on error
-int disk_mount_to_emulator(int drive, struct mii_t *mii, int slot);
+int disk_mount_to_emulator(int drive, struct mii_t *mii, int slot, int preserve_state);
 
 // Eject a disk from the emulator
 // drive: 0 or 1 (Drive 1 or Drive 2)

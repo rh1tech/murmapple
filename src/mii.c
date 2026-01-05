@@ -682,7 +682,7 @@ static const unsigned __int128 _mii_ramworks3_config[] = {
 #if MII_RP2350
 // Static memory arrays for RP2350 (no malloc/realloc)
 static uint8_t rp2350_main_mem[0x10000];  // 64KB main memory
-static uint8_t rp2350_aux_mem[0xD000];    // 52KB aux memory
+static uint8_t rp2350_aux_mem[0x10000];   // 64KB aux memory (full Apple IIe aux)
 static uint8_t rp2350_sw_mem[256];        // Soft switch area
 static uint8_t rp2350_card_rom[0x0F00];   // Card ROM area ($C100-$CFFF = 15 pages)
 
@@ -1082,20 +1082,27 @@ mii_timer_run(
 		uint64_t cycles)
 {
 #ifdef MII_RP2350
-	// Optimized timer loop - unrolled for first 8 timers (most common case)
-	// Avoids expensive ffsll() call on ARM
+	// Process ALL active timers
 	uint64_t timer = mii->timer.map;
 	if (!timer) return;
 	
-	for (int i = 0; i < 8 && timer; i++) {
+	for (int i = 0; i < 64 && timer; i++) {
 		if (timer & (1ull << i)) {
 			timer &= ~(1ull << i);
 			if (mii->timer.timers[i].when > 0) {
 				mii->timer.timers[i].when -= cycles;
 				if (mii->timer.timers[i].when <= 0) {
-					if (mii->timer.timers[i].cb)
-						mii->timer.timers[i].when += mii->timer.timers[i].cb(mii,
+					if (mii->timer.timers[i].cb) {
+						uint64_t period = mii->timer.timers[i].cb(mii,
 								mii->timer.timers[i].param);
+						// If timer got very behind (missed multiple periods),
+						// just reset to the period instead of adding to huge negative
+						if (mii->timer.timers[i].when < -(int64_t)period) {
+							mii->timer.timers[i].when = period;
+						} else {
+							mii->timer.timers[i].when += period;
+						}
+					}
 				}
 			}
 		}

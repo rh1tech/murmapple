@@ -135,4 +135,8 @@ void
 mii_video_scale_to_hdmi(
 		struct mii_video_t *video,
 		uint8_t *hdmi_buffer);
+
+void
+mii_video_reset_vbl_timer(
+		struct mii_t *mii);
 #endif

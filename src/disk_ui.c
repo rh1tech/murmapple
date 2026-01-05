@@ -284,8 +284,10 @@ bool disk_ui_handle_key(uint8_t key) {
                        selected_action == DISK_ACTION_BOOT ? "BOOT" : "INSERT");
                 if (disk_load_image(selected_drive, selected_index) == 0) {
                     // Mount the disk to the emulator
+                    // For INSERT mode, preserve drive state (motor, head position)
+                    int preserve_state = (selected_action == DISK_ACTION_INSERT) ? 1 : 0;
                     if (g_mii) {
-                        if (disk_mount_to_emulator(selected_drive, g_mii, g_disk2_slot) == 0) {
+                        if (disk_mount_to_emulator(selected_drive, g_mii, g_disk2_slot, preserve_state) == 0) {
                             printf("Disk UI: disk mounted successfully\n");
                             
                             if (selected_action == DISK_ACTION_BOOT) {
