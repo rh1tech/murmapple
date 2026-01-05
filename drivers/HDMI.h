@@ -58,6 +58,23 @@ uint8_t* graphics_get_buffer(void);
 void graphics_request_buffer_swap(uint8_t *buffer);
 // Returns a monotonically increasing frame counter (incremented on vsync).
 uint32_t hdmi_get_frame_count(void);
+// Returns the HDMI DMA IRQ count (for detecting stalls).
+uint32_t hdmi_get_irq_count(void);
+// Check if HDMI DMA is still running and restart if stalled.
+// Returns true if a restart was needed.
+bool hdmi_check_and_restart(void);
+// Pause HDMI output (stops DMA, keeps PIO configured)
+void hdmi_pause(void);
+// Resume HDMI output (restarts DMA)
+void hdmi_resume(void);
+// Set whether to defer IRQ handler setup to Core 1. Call before graphics_init().
+void graphics_set_defer_irq_to_core1(bool defer);
+// Initialize the IRQ handler on the current core. Call from Core 1 after 
+// graphics_init() was called with defer mode enabled.
+void graphics_init_irq_on_this_core(void);
+// Rebind the HDMI DMA IRQ handler to the calling core.
+// Call from Core 1 to ensure HDMI keeps running when Core 0 is busy.
+void graphics_rebind_irq_to_current_core(void);
 uint32_t graphics_get_width(void);
 uint32_t graphics_get_height(void);
 void graphics_set_res(int w, int h);

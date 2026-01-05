@@ -314,6 +314,19 @@ bool disk_ui_handle_key(uint8_t key) {
                             } else {
                                 // INSERT mode: Just swap the disk, don't reset
                                 printf("Disk UI: disk inserted (no reset)\n");
+                                
+                                // Clear keyboard state so old keypresses don't affect the game
+                                mii_bank_t *sw_bank = &g_mii->bank[MII_BANK_SW];
+                                mii_bank_poke(sw_bank, SWKBD, 0);
+                                mii_bank_poke(sw_bank, SWAKD, 0);
+                                
+                                // Clear JOYSTICK BUTTONS too - these can skip title screens!
+                                mii_bank_poke(sw_bank, 0xc061, 0);  // Button 0
+                                mii_bank_poke(sw_bank, 0xc062, 0);  // Button 1
+                                mii_bank_poke(sw_bank, 0xc063, 0);  // Button 2
+                                
+                                // Clear held key tracking
+                                clear_held_key();
                             }
                         } else {
                             printf("Disk UI: failed to mount disk to emulator\n");

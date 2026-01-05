@@ -141,7 +141,11 @@ static void init_palette(void) {
 
 // Process PS/2 keyboard input
 // Track currently held key for games that need key-hold detection
+// Apple II keyboard repeat: ~500ms initial delay, then ~67ms repeat rate
 static uint8_t currently_held_key = 0;
+static uint32_t key_hold_frames = 0;  // Frames since key was first pressed
+#define KEY_REPEAT_INITIAL_DELAY 30   // ~500ms at 60fps before repeat starts
+#define KEY_REPEAT_RATE 4             // ~67ms between repeats
 
 static void process_keyboard(void) {
     int pressed;
@@ -164,22 +168,32 @@ static void process_keyboard(void) {
             // Normal key - send to emulator and track as held
             mii_keypress(&g_mii, key);
             currently_held_key = key;
+            key_hold_frames = 0;  // Reset repeat timer
         } else {
             // Key released - clear if it was the held key
             if (key == currently_held_key) {
                 currently_held_key = 0;
+                key_hold_frames = 0;
             }
         }
     }
     
-    // Re-latch held key each frame if strobe is clear (game processed previous key)
-    // This supports games that poll keyboard state while key is held
+    // Re-latch held key with proper repeat timing (like real Apple II keyboard)
+    // Initial delay before repeat, then steady repeat rate
     if (currently_held_key != 0) {
-        mii_bank_t *sw = &g_mii.bank[MII_BANK_SW];
-        uint8_t strobe = mii_bank_peek(sw, 0xc010);
-        if (!(strobe & 0x80)) {
-            // Strobe is clear, game processed the key - re-latch if still held
-            mii_keypress(&g_mii, currently_held_key);
+        key_hold_frames++;
+        
+        // Only repeat after initial delay, and at the proper repeat rate
+        if (key_hold_frames > KEY_REPEAT_INITIAL_DELAY) {
+            uint32_t frames_since_delay = key_hold_frames - KEY_REPEAT_INITIAL_DELAY;
+            if ((frames_since_delay % KEY_REPEAT_RATE) == 0) {
+                mii_bank_t *sw = &g_mii.bank[MII_BANK_SW];
+                uint8_t strobe = mii_bank_peek(sw, 0xc010);
+                if (!(strobe & 0x80)) {
+                    // Strobe is clear, game processed the key - re-latch
+                    mii_keypress(&g_mii, currently_held_key);
+                }
+            }
         }
     }
 }
@@ -193,6 +207,7 @@ uint8_t get_held_key(void) {
 // Clear held key state (call after disk load or reset)
 void clear_held_key(void) {
     currently_held_key = 0;
+    key_hold_frames = 0;
 }
 
 // Flag to indicate emulator is ready
@@ -594,13 +609,44 @@ int main() {
         uint32_t input_end = time_us_32();
         total_input_time += (input_end - input_start);
         
+        // Track disk UI state changes for debugging
+        static bool disk_ui_was_visible = false;
+        static int debug_frames = 0;
+        bool disk_ui_now = disk_ui_is_visible();
+        
+        if (disk_ui_was_visible && !disk_ui_now) {
+            // UI just closed - debug first 60 frames (1 second)
+            debug_frames = 60;
+            printf("=== DISK UI CLOSED - MONITORING ===\n");
+        }
+        disk_ui_was_visible = disk_ui_now;
+        
         // Run CPU for one frame worth of cycles.
         // VBL timing is now handled by mii_video_vbl_timer_cb which toggles
         // SWVBL at the proper cycle counts during execution. This allows
         // games that wait for VBL transitions to work correctly.
+        //
+        // IMPORTANT: Don't run emulator while disk UI is visible!
+        // Games time their title screens using VBL counts. If we keep running
+        // while user navigates the disk menu, the game's timer advances and
+        // it will skip through timed sequences (like title screens).
         uint32_t cpu_start = time_us_32();
         uint64_t cycles_before = g_mii.cpu.total_cycle;
-        mii_run_cycles(&g_mii, cycles_per_frame);
+        if (!disk_ui_is_visible()) {
+            // Debug: Check button/key state BEFORE running CPU
+            if (debug_frames > 0) {
+                mii_bank_t *sw = &g_mii.bank[MII_BANK_SW];
+                uint8_t btn0 = mii_bank_peek(sw, 0xc061);
+                uint8_t btn1 = mii_bank_peek(sw, 0xc062);
+                uint8_t key = mii_bank_peek(sw, SWKBD);
+                if (btn0 || btn1 || (key & 0x80)) {
+                    printf("F%d: BTN0=%02X BTN1=%02X KEY=%02X\n", 
+                           60 - debug_frames, btn0, btn1, key);
+                }
+                debug_frames--;
+            }
+            mii_run_cycles(&g_mii, cycles_per_frame);
+        }
         uint64_t cycles_after = g_mii.cpu.total_cycle;
         uint32_t cpu_end = time_us_32();
         

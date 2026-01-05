@@ -11,6 +11,11 @@
 #include "hardware/clocks.h"
 #include "hardware/irq.h"
 
+// Flag to defer IRQ handler setup to Core 1
+// When true, hdmi_init() will NOT set the IRQ handler - Core 1 must call
+// graphics_init_irq_on_this_core() after starting.
+static bool g_defer_irq_to_core1 = false;
+
 // Globals expected by the driver
 int graphics_buffer_width = 320;
 int graphics_buffer_height = 240;
@@ -132,10 +137,50 @@ alignas(4096) uint32_t conv_color[1224];
 
 //индекс, проверяющий зависание
 static uint32_t irq_inx = 0;
+static uint32_t last_check_irq = 0;
 
 // Debug function to get DMA IRQ count
 uint32_t hdmi_get_irq_count(void) {
     return irq_inx;
+}
+
+// Forward declaration
+static inline bool hdmi_init(void);
+
+// Check if HDMI DMA has stalled and restart if needed.
+// Call this periodically during long operations to maintain HDMI signal.
+bool hdmi_check_and_restart(void) {
+    uint32_t current = irq_inx;
+    if (current == last_check_irq) {
+        // IRQ count hasn't changed - HDMI may have stalled
+        printf("HDMI: DMA stalled (irq_inx=%lu), restarting...\n", (unsigned long)current);
+        hdmi_init();
+        last_check_irq = irq_inx;
+        return true;
+    }
+    last_check_irq = current;
+    return false;
+}
+
+// Pause HDMI output - stops DMA but keeps configuration
+void hdmi_pause(void) {
+    // Disable IRQ
+    irq_set_enabled(VIDEO_DMA_IRQ, false);
+    
+    // Abort all DMA channels
+    dma_hw->abort = (1 << dma_chan_ctrl) | (1 << dma_chan) | 
+                    (1 << dma_chan_pal_conv) | (1 << dma_chan_pal_conv_ctrl);
+    while (dma_hw->abort) tight_loop_contents();
+    
+    // Disable PIO state machines
+    pio_sm_set_enabled(PIO_VIDEO, SM_video, false);
+    pio_sm_set_enabled(PIO_VIDEO_ADDR, SM_conv, false);
+}
+
+// Resume HDMI output - restarts everything
+void hdmi_resume(void) {
+    // Full reinit is the safest way to restart
+    hdmi_init();
 }
 
 //функции и константы HDMI
@@ -485,6 +530,7 @@ static inline bool hdmi_init() {
     dma_channel_config cfg_dma = dma_channel_get_default_config(dma_chan);
     channel_config_set_transfer_data_size(&cfg_dma, DMA_SIZE_8);
     channel_config_set_chain_to(&cfg_dma, dma_chan_ctrl); // chain to other channel
+    channel_config_set_high_priority(&cfg_dma, true);  // High priority for HDMI
 
     channel_config_set_read_increment(&cfg_dma, true);
     channel_config_set_write_increment(&cfg_dma, false);
@@ -508,6 +554,7 @@ static inline bool hdmi_init() {
     cfg_dma = dma_channel_get_default_config(dma_chan_ctrl);
     channel_config_set_transfer_data_size(&cfg_dma, DMA_SIZE_32);
     channel_config_set_chain_to(&cfg_dma, dma_chan); // chain to other channel
+    channel_config_set_high_priority(&cfg_dma, true);  // High priority for HDMI
 
     channel_config_set_read_increment(&cfg_dma, false);
     channel_config_set_write_increment(&cfg_dma, false);
@@ -529,6 +576,7 @@ static inline bool hdmi_init() {
     cfg_dma = dma_channel_get_default_config(dma_chan_pal_conv);
     channel_config_set_transfer_data_size(&cfg_dma, DMA_SIZE_32);
     channel_config_set_chain_to(&cfg_dma, dma_chan_pal_conv_ctrl); // chain to other channel
+    channel_config_set_high_priority(&cfg_dma, true);  // High priority for HDMI
 
     channel_config_set_read_increment(&cfg_dma, true);
     channel_config_set_write_increment(&cfg_dma, false);
@@ -552,6 +600,7 @@ static inline bool hdmi_init() {
     cfg_dma = dma_channel_get_default_config(dma_chan_pal_conv_ctrl);
     channel_config_set_transfer_data_size(&cfg_dma, DMA_SIZE_32);
     channel_config_set_chain_to(&cfg_dma, dma_chan_pal_conv); // chain to other channel
+    channel_config_set_high_priority(&cfg_dma, true);  // High priority for HDMI
 
     channel_config_set_read_increment(&cfg_dma, false);
     channel_config_set_write_increment(&cfg_dma, false);
@@ -713,6 +762,50 @@ void graphics_set_bgcolor(uint32_t color888) {
 
 void startVIDEO(uint8_t vol) {
     // Stub
+}
+
+void graphics_set_defer_irq_to_core1(bool defer) {
+    g_defer_irq_to_core1 = defer;
+}
+
+void graphics_init_irq_on_this_core(void) {
+    // Initialize the HDMI DMA IRQ handler on the current core.
+    // Call this from Core 1 after graphics_init() was called with defer mode.
+    // This ensures HDMI keeps running even when Core 0 is busy with SD card I/O.
+    irq_set_exclusive_handler(VIDEO_DMA_IRQ, dma_handler_HDMI);
+    irq_set_priority(VIDEO_DMA_IRQ, 0);
+    irq_set_enabled(VIDEO_DMA_IRQ, true);
+    printf("HDMI: IRQ handler set on core %u\n", get_core_num());
+}
+
+void graphics_rebind_irq_to_current_core(void) {
+    // Rebind the HDMI DMA IRQ handler to the current core.
+    // This allows the HDMI signal to keep running even when the other core
+    // is busy (e.g., doing SD card I/O).
+    //
+    // We need to be careful here - the DMA is running and firing interrupts.
+    // We disable interrupts globally during the switch to avoid race conditions.
+    
+    uint32_t save = save_and_disable_interrupts();
+    
+    // Disable the DMA IRQ on the old core
+    irq_set_enabled(VIDEO_DMA_IRQ, false);
+    
+    // Clear any pending IRQ
+    if (VIDEO_DMA_IRQ == DMA_IRQ_0) {
+        dma_channel_acknowledge_irq0(dma_chan_ctrl);
+    } else {
+        dma_channel_acknowledge_irq1(dma_chan_ctrl);
+    }
+    
+    // Set the handler on this core (Core 1)
+    irq_set_exclusive_handler(VIDEO_DMA_IRQ, dma_handler_HDMI);
+    irq_set_priority(VIDEO_DMA_IRQ, 0);
+    irq_set_enabled(VIDEO_DMA_IRQ, true);
+    
+    restore_interrupts(save);
+    
+    printf("HDMI: IRQ handler rebound to core %u\n", get_core_num());
 }
 
 void set_palette(uint8_t n) {

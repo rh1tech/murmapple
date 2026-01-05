@@ -758,6 +758,13 @@ _mii_floppy_lss_cb(
 	uint64_t ret = -delta + 1;
 	int ticks = (-delta + 1) * 2;
 	
+	// CRITICAL: Cap ticks to prevent hang when timer falls behind!
+	// One frame = 17030 cycles = ~2000 ticks. Cap at 4000 to allow catch-up.
+	if (ticks > 4000) {
+		ticks = 4000;
+		ret = 2000;  // Return a reasonable period
+	}
+	
 	const uint8_t track_id = f->track_id[f->qtrack];
 	uint8_t *track = f->track_data[track_id];
 	
@@ -805,6 +812,12 @@ _mii_floppy_lss_cb(
 	int32_t delta = mii_timer_get(mii, c->timer_lss);
 	uint64_t ret = -delta + 1;
 	int ticks = (-delta + 1) * 2;
+	
+	// CRITICAL: Cap ticks to prevent hang when timer falls behind!
+	if (ticks > 4000) {
+		ticks = 4000;
+		ret = 2000;
+	}
 	
 	while (ticks > 0) {
 		_mii_disk2_lss_tick(c);
@@ -965,4 +978,22 @@ _mii_disk2_lss_tick(
 		c->clock -= f->bit_timing;
 		f->bit_position = (f->bit_position + 1) % f->tracks[track_id].bit_count;
 	}
+}
+
+/*
+ * Get the current disk motor state for UI display.
+ * Returns: 0 = both motors off, 1 = drive 1 motor on, 2 = drive 2 motor on
+ */
+int
+mii_disk2_get_motor_state(void)
+{
+	if (!_mish_d2)
+		return 0;
+	
+	mii_card_disk2_t *c = _mish_d2;
+	if (c->floppy[0].motor)
+		return 1;
+	if (c->floppy[1].motor)
+		return 2;
+	return 0;
 }

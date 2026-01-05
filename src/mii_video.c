@@ -1867,6 +1867,70 @@ mii_video_render(
 	// For now, we'll do nothing here since we render directly to HDMI buffer
 }
 
+// Forward declaration
+int mii_disk2_get_motor_state(void);
+
+// Draw a simple floppy disk activity indicator in the bottom border
+static void
+mii_video_draw_floppy_indicator(uint8_t *hdmi_buffer, int motor_state)
+{
+	if (motor_state == 0)
+		return;  // No motor active, don't draw
+	
+	// Draw in bottom-right corner of bottom border
+	// Bottom border starts at row 216 (rows 216-239 = 24 rows)
+	// Icon position: 8x8 pixels, right side
+	int start_x = 304;  // 320 - 16
+	int start_y = 220;  // Near top of bottom border
+	
+	// Simple 8x8 floppy disk icon (simplified)
+	// 0 = black, 1 = color (based on drive number)
+	static const uint8_t floppy_icon[8] = {
+		0b11111110,  // Top edge
+		0b10000010,  // Left/right edge
+		0b10111010,  // With label area
+		0b10111010,  // 
+		0b10000010,  // 
+		0b10011010,  // Metal slider area
+		0b10011010,  //
+		0b11111110,  // Bottom edge
+	};
+	
+	// Color: Green for drive 1, Orange for drive 2
+	uint8_t color = (motor_state == 1) ? 0x1C : 0xE0;  // Green or Orange in 8-bit RGB332
+	
+	for (int y = 0; y < 8; y++) {
+		uint8_t row = floppy_icon[y];
+		for (int x = 0; x < 8; x++) {
+			if (row & (0x80 >> x)) {
+				int offset = (start_y + y) * 320 + (start_x + x);
+				hdmi_buffer[offset] = color;
+			}
+		}
+	}
+	
+	// Also draw drive number (1 or 2)
+	// Simple: draw "1" or "2" next to the icon
+	int num_x = start_x - 10;
+	if (motor_state == 1) {
+		// Draw "1" - simple vertical line
+		for (int y = 2; y < 7; y++) {
+			hdmi_buffer[(start_y + y) * 320 + num_x + 2] = color;
+		}
+	} else {
+		// Draw "2" - simplified
+		hdmi_buffer[(start_y + 2) * 320 + num_x + 1] = color;
+		hdmi_buffer[(start_y + 2) * 320 + num_x + 2] = color;
+		hdmi_buffer[(start_y + 2) * 320 + num_x + 3] = color;
+		hdmi_buffer[(start_y + 3) * 320 + num_x + 3] = color;
+		hdmi_buffer[(start_y + 4) * 320 + num_x + 2] = color;
+		hdmi_buffer[(start_y + 5) * 320 + num_x + 1] = color;
+		hdmi_buffer[(start_y + 6) * 320 + num_x + 1] = color;
+		hdmi_buffer[(start_y + 6) * 320 + num_x + 2] = color;
+		hdmi_buffer[(start_y + 6) * 320 + num_x + 3] = color;
+	}
+}
+
 // Scale Apple II video to HDMI framebuffer
 void
 mii_video_scale_to_hdmi(
@@ -1912,6 +1976,12 @@ mii_video_scale_to_hdmi(
 	} else {
 		// Lo-res graphics mode
 		mii_video_render_lores_rp2350(mii, hdmi_buffer, 320);
+	}
+	
+	// Draw floppy activity indicator in bottom border
+	int motor_state = mii_disk2_get_motor_state();
+	if (motor_state > 0) {
+		mii_video_draw_floppy_indicator(hdmi_buffer, motor_state);
 	}
 }
 

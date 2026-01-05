@@ -50,3 +50,10 @@ void
 _mii_disk2_vcd_debug(
 	mii_card_disk2_t *c,
 	int on);
+
+/*
+ * Get current disk motor state for UI indicator.
+ * Returns: 0 = both off, 1 = drive 1 active, 2 = drive 2 active
+ */
+int
+mii_disk2_get_motor_state(void);

@@ -2,7 +2,9 @@
 
 #include "pico.h"
 #include "pico/stdlib.h"
+#include "pico/platform.h"
 #include "hardware/clocks.h"
+#include "hardware/dma.h"
 #ifndef SDCARD_PIO
 #include "hardware/spi.h"
 #else
@@ -11,9 +13,16 @@
 #include "hardware/gpio.h"
 //#include "hardware/gpio_ex.h"
 
+// Keep HDMI timing alive during long SD operations
+#include "../HDMI.h"
+
 #include "ff.h"
 #include "diskio.h"
 
+// DMA channel for SD card SPI reads (claimed at init time)
+static int sd_dma_tx = -1;
+static int sd_dma_rx = -1;
+static uint8_t sd_dma_dummy = 0xFF;  // Dummy byte for TX during reads
 
 /*--------------------------------------------------------------------------
 
@@ -51,7 +60,7 @@
 #define CT_BLOCK       0x08            /* Block addressing */
 
 #define CLK_SLOW	(100 * KHZ)
-#define CLK_FAST	(30 * MHZ)
+#define CLK_FAST	(10 * MHZ)  // Reduced from 30MHz to reduce bus contention with HDMI
 
 static volatile
 DSTATUS Stat = STA_NOINIT;	/* Physical drive status */
@@ -155,6 +164,10 @@ void init_spi(void)
 		SPI_CPHA_0, /* cpha */
 		SPI_MSB_FIRST /* order */
 	);
+	
+	/* Claim DMA channels for non-blocking SPI reads */
+	sd_dma_tx = dma_claim_unused_channel(true);
+	sd_dma_rx = dma_claim_unused_channel(true);
 #else
     gpio_set_dir(SDCARD_PIN_SPI0_SCK, GPIO_OUT);
     gpio_set_dir(SDCARD_PIN_SPI0_MISO, GPIO_OUT);
@@ -193,7 +206,7 @@ BYTE xchg_spi (
 }
 
 
-/* Receive multiple byte */
+/* Receive multiple byte - use blocking SPI to avoid DMA contention with HDMI */
 static
 void rcvr_spi_multi (
 	BYTE *buff,		/* Pointer to data buffer */
@@ -202,7 +215,17 @@ void rcvr_spi_multi (
 {
 	uint8_t *b = (uint8_t *) buff;
 #ifndef SDCARD_PIO
-	spi_read_blocking(SDCARD_SPI_BUS, 0xff, b, btr);
+	// Read in small chunks with yields to allow HDMI DMA IRQ to fire
+	const UINT chunk_size = 64;
+	while (btr > 0) {
+		UINT chunk = (btr > chunk_size) ? chunk_size : btr;
+		spi_read_blocking(SDCARD_SPI_BUS, 0xff, b, chunk);
+		b += chunk;
+		btr -= chunk;
+		// Brief yield and periodic HDMI stall check
+		tight_loop_contents();
+		hdmi_check_and_restart();
+	}
 #else
 	pio_spi_repeat8_read8_blocking(&pio_spi, 0xff, b, btr);
 #endif
@@ -223,7 +246,9 @@ int wait_ready (	/* 1:Ready, 0:Timeout */
 	uint32_t t = _millis();
 	do {
 		d = xchg_spi(0xFF);
-		/* This loop takes a time. Insert rot_rdq() here for multitask envilonment. */
+		/* Allow interrupts to be processed (e.g., HDMI DMA) */
+		tight_loop_contents();
+		hdmi_check_and_restart();
 	} while (d != 0xFF && _millis() < t + wt);	/* Wait for card goes ready or timeout */
 
 	return (d == 0xFF) ? 1 : 0;
@@ -277,7 +302,8 @@ int rcvr_datablock (	/* 1:OK, 0:Error */
 	uint32_t t = _millis();
 	do {							/* Wait for DataStart token in timeout of 200ms */
 		token = xchg_spi(0xFF);
-		/* This loop will take a time. Insert rot_rdq() here for multitask envilonment. */
+		/* Allow interrupts to be processed (e.g., HDMI DMA) */
+		tight_loop_contents();
 	} while (token == 0xFF && _millis() < t + timeout);
 	if(token != 0xFE) return 0;		/* Function fails if invalid DataStart token or timeout */
 
