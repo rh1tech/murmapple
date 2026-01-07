@@ -612,14 +612,14 @@ int main() {
             // Map NES D-pad to Apple II joystick
             // (Keyboard arrows work as keyboard input, not joystick)
             // Paddle 0 = X axis (left/right): 0=left, 127=center, 255=right
-            // Paddle 1 = Y axis (up/down): 255=up, 0=down (inverted for Apple II convention)
+            // Paddle 1 = Y axis (up/down): 0=up, 255=down
             uint8_t joy_x = 127;  // center
             uint8_t joy_y = 127;  // center
             // NES D-pad only - arrows go through as keyboard
             if (nespad_state & DPAD_LEFT)  joy_x = 0;
             if (nespad_state & DPAD_RIGHT) joy_x = 255;
-            if (nespad_state & DPAD_UP)    joy_y = 255;
-            if (nespad_state & DPAD_DOWN)  joy_y = 0;
+            if (nespad_state & DPAD_UP)    joy_y = 0;
+            if (nespad_state & DPAD_DOWN)  joy_y = 255;
             
             g_mii.analog.v[0].value = joy_x;
             g_mii.analog.v[1].value = joy_y;
