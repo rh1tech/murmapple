@@ -11,6 +11,11 @@
 #pragma once
 #include <stdint.h>
 
+// Define 'uint' for compatibility with original clemens code
+#ifndef uint
+typedef unsigned int uint;
+#endif
+
 typedef uint64_t mb_clocks_time_t;
 typedef uint32_t mb_clocks_t;
 

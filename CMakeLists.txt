@@ -26,11 +26,22 @@ message(STATUS "Board: ${BOARD_VARIANT}, CPU: ${CPU_SPEED} MHz, PSRAM: ${PSRAM_S
 
 include(pico_sdk_import.cmake)
 
+# Import pico-extras for audio_i2s library
+set(PICO_EXTRAS_PATH ${CMAKE_CURRENT_LIST_DIR}/pico-extras CACHE PATH "Path to pico-extras")
+if(EXISTS ${PICO_EXTRAS_PATH}/external/pico_extras_import.cmake)
+    include(${PICO_EXTRAS_PATH}/external/pico_extras_import.cmake)
+endif()
+
 project(murmapple C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 pico_sdk_init()
+
+# Initialize pico-extras if available
+if(COMMAND pico_extras_init)
+    pico_extras_init()
+endif()
 
 # Copy driver subdirectories from murmdoom structure
 add_subdirectory(drivers/ps2kbd)
@@ -75,6 +86,10 @@ add_executable(murmapple
     src/mii_woz.c
     src/mii_vcd_stub.c
     src/mii_rom_disk2_p5.c
+    # Audio support
+    src/mii_audio_i2s.c
+    # Note: mii_speaker.c is excluded - stub provided in main.c for RP2350
+    src/mockingboard.c
 )
 
 target_include_directories(murmapple PRIVATE
@@ -89,6 +104,11 @@ target_compile_definitions(murmapple PRIVATE
     PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
     MII_65C02_DIRECT_ACCESS=1
     MII_RP2350=1
+    # I2S Audio configuration
+    PICO_AUDIO_I2S_PIO=1
+    PICO_AUDIO_I2S_STATE_MACHINE=2
+    PICO_AUDIO_I2S_DMA_IRQ=1
+    FEATURE_AUDIO=1
 )
 
 # Optimization for maximum performance on RP2350
@@ -107,6 +127,7 @@ target_compile_options(murmapple PRIVATE
 target_link_libraries(murmapple
     pico_stdlib
     pico_multicore
+    pico_audio_i2s
     hardware_dma
     hardware_pio
     hardware_clocks

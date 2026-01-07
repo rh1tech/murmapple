@@ -24,6 +24,7 @@
 #include "mii_65c02.h"
 #include "mii_analog.h"
 #include "mii_speaker.h"
+#include "mii_audio_i2s.h"
 #include "mii_slot.h"
 #include "mii_disk2.h"
 #include "disk_loader.h"
@@ -40,8 +41,14 @@
 // Note: mii_analog_access is now provided by mii_analog.c for paddle timing
 
 void mii_speaker_click(mii_speaker_t *speaker) {
+#ifdef FEATURE_AUDIO
+    // Forward speaker clicks to I2S audio driver
+    if (speaker && speaker->mii) {
+        mii_audio_speaker_click(speaker->mii->cpu.total_cycle);
+    }
+#else
     (void)speaker;
-    // No speaker support on RP2350 yet
+#endif
 }
 
 int mii_cpu_disasm_one(char *buf, size_t buflen, mii_cpu_t *cpu,
@@ -539,6 +546,17 @@ int main() {
     multicore_launch_core1(core1_main);
     printf("Core 1 launched\n");
     
+#ifdef FEATURE_AUDIO
+    // Initialize I2S audio
+    printf("Initializing I2S audio...\n");
+    if (mii_audio_i2s_init()) {
+        printf("I2S audio initialized (DATA=%d, CLK=%d/%d, %d Hz)\n",
+               I2S_DATA_PIN, I2S_CLOCK_PIN_BASE, I2S_CLOCK_PIN_BASE + 1, MII_I2S_SAMPLE_RATE);
+    } else {
+        printf("I2S audio initialization failed\n");
+    }
+#endif
+
     printf("Starting emulation on core 0...\n");
     printf("Initial PC: $%04X\n", g_mii.cpu.PC);
     printf("=================================\n\n");
@@ -652,6 +670,11 @@ int main() {
         
         total_cpu_time += (cpu_end - cpu_start);
         total_cycles_run += (uint32_t)(cycles_after - cycles_before);
+
+#ifdef FEATURE_AUDIO
+        // Update audio output - fills I2S buffers
+        mii_audio_update(cycles_after, a2_cycles_per_second);
+#endif
 
         // frame_count is now incremented by the VBL timer callback
         
