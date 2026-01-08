@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "debug_log.h"
+
 // RP2350/Pico compatibility - no libgen.h
 #ifdef MII_RP2350
 // Simple basename implementation for Pico
@@ -214,10 +216,10 @@ _mii_floppy_dsk_write_sector(
 
 	int errors = mii_floppy_decode_sector(data_sector, data);
 	if (errors) {
-		printf("%s: T %2d S %2d has errors -- not writing sector\n",
+		MII_DEBUG_PRINTF("%s: T %2d S %2d has errors -- not writing sector\n",
 				__func__, track_id, sector);
 	} else {
-		printf("%s: T %2d S %2d has changed, writing sector\n",
+		MII_DEBUG_PRINTF("%s: T %2d S %2d has changed, writing sector\n",
 				__func__, track_id, sector);
 		memcpy(file->map + map->sector[sector].dsk_position, data, 256);
 	}
@@ -233,11 +235,11 @@ mii_floppy_dsk_load(
     const char *ext = rindex(filename, '.');
     ext = ext ? ext+1 : "";
 	const uint8_t * secmap = DO;
-    if (!strcasecmp(ext, "PO"))  {
-		printf("%s opening %s as PO.\n", __func__, filename);
+	if (!strcasecmp(ext, "PO"))  {
+		MII_DEBUG_PRINTF("%s opening %s as PO.\n", __func__, filename);
    		secmap = PO;
     } else {
-		printf("%s opening %s as DO.\n", __func__, filename);
+		MII_DEBUG_PRINTF("%s opening %s as DO.\n", __func__, filename);
     }
 	for (int i = 0; i < 35; ++i) {
 		mii_floppy_track_t *dst = &f->tracks[i];
@@ -254,10 +256,10 @@ mii_floppy_dsk_load(
 			dst->map.sector[phys_sector].dsk_position = off;
 		}
 		if (i == 0)
-			printf("%s: track %2d has %u bits %u bytes\n",
-					__func__, i,
-					(unsigned)dst->bit_count,
-					(unsigned)(dst->bit_count >> 3));
+		    MII_DEBUG_PRINTF("%s: track %2d has %u bits %u bytes\n",
+			    __func__, i,
+			    (unsigned)dst->bit_count,
+			    (unsigned)(dst->bit_count >> 3));
 	}
 	// DSK is read only
 //	f->write_protected |= MII_FLOPPY_WP_RO_FORMAT;

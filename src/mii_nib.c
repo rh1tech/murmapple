@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "debug_log.h"
+
 // RP2350/Pico compatibility - no libgen.h
 #ifdef MII_RP2350
 // Simple basename implementation for Pico
@@ -97,8 +99,8 @@ mii_floppy_nib_render_track(
 //	printf("%s %d sectors found hmap %04x dmap %04x - %5d bits\n",
 //			__func__, seccount, hmap, dmap, dst->bit_count);
 	if (hmap != 0xffff || dmap != 0xffff)
-		printf("%s: track %2d incomplete? (header 0x%04x data 0x%04x)\n",
-				__func__, tid, ~hmap, ~dmap);
+		    MII_DEBUG_PRINTF("%s: track %2d incomplete? (header 0x%04x data 0x%04x)\n",
+			    __func__, tid, ~hmap, ~dmap);
 	else
 		dst->has_map = 1;
 }
@@ -116,8 +118,8 @@ _mii_floppy_nib_write_sector(
 		uint8_t data_sector[342 + 1] )
 {
 	(void)track_data;
-	printf("%s: T %2d S %2d has changed, writing sector\n",
-			__func__, track_id, sector);
+	    MII_DEBUG_PRINTF("%s: T %2d S %2d has changed, writing sector\n",
+		    __func__, track_id, sector);
 	uint8_t *dst = file->map + (track_id * 6656) +
 					map->sector[sector].nib_position;
 	memcpy(dst, data_sector, 342 + 1);
@@ -129,13 +131,13 @@ mii_floppy_nib_load(
 		mii_dd_file_t *file )
 {
 	const char *filename = basename(file->pathname);
-	printf("%s: loading NIB %s\n", __func__, filename);
+	MII_DEBUG_PRINTF("%s: loading NIB %s\n", __func__, filename);
 	for (int i = 0; i < 35; i++) {
 		uint8_t *track = file->map + (i * 6656);
 		mii_floppy_nib_render_track(track, &f->tracks[i], f->track_data[i]);
 		if (f->tracks[i].bit_count < 100) {
-			printf("%s: %s: Invalid track %d has zero bits!\n", __func__,
-					filename, i);
+			    MII_DEBUG_PRINTF("%s: %s: Invalid track %d has zero bits!\n", __func__,
+				    filename, i);
 			return -1;
 		}
 	//	printf("Track %d converted to %d bits\n", i, f->tracks[i].bit_count);

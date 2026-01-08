@@ -12,6 +12,7 @@
 #include "mii.h"
 #include "mii_sw.h"
 #include "mii_bank.h"
+#include "debug_log.h"
 
 // External function to clear held key state (from main.c)
 extern void clear_held_key(void);
@@ -280,7 +281,7 @@ void disk_ui_init_with_emulator(mii_t *mii, int disk2_slot) {
     disk_ui_init();
     g_mii = mii;
     g_disk2_slot = disk2_slot;
-    printf("Disk UI initialized with mii=%p, slot=%d\n", mii, disk2_slot);
+    MII_DEBUG_PRINTF("Disk UI initialized with mii=%p, slot=%d\n", mii, disk2_slot);
 }
 
 void disk_ui_show(void) {
@@ -289,7 +290,7 @@ void disk_ui_show(void) {
         selected_drive = 0;
         ui_dirty = true;
         ui_rendered = false;
-        printf("Disk UI: showing drive selection\n");
+        MII_DEBUG_PRINTF("Disk UI: showing drive selection\n");
     }
 }
 
@@ -298,7 +299,7 @@ void disk_ui_hide(void) {
     ui_rendered = false;
     ui_dirty = false;
     g_last_framebuffer = NULL;
-    printf("Disk UI: hidden\n");
+    MII_DEBUG_PRINTF("Disk UI: hidden\n");
 }
 
 void disk_ui_toggle(void) {
@@ -333,10 +334,10 @@ static void handle_disk_loaded(void) {
     if (g_mii) {
         int preserve_state = (selected_action == 1) ? 1 : 0;  // INSERT preserves state
         if (disk_mount_to_emulator(selected_drive, g_mii, g_disk2_slot, preserve_state) == 0) {
-            printf("Disk UI: disk mounted successfully\n");
+            MII_DEBUG_PRINTF("Disk UI: disk mounted successfully\n");
             
             if (selected_action == 0) {  // BOOT
-                printf("Disk UI: resetting CPU for disk boot\n");
+                MII_DEBUG_PRINTF("Disk UI: resetting CPU for disk boot\n");
                 mii_reset(g_mii, true);
                 
                 mii_bank_t *sw_bank = &g_mii->bank[MII_BANK_SW];
@@ -346,9 +347,9 @@ static void handle_disk_loaded(void) {
                 
                 uint8_t sw_byte = 0;
                 mii_mem_access(g_mii, SWINTCXROMOFF, &sw_byte, true, true);
-                printf("Disk UI: CPU reset complete\n");
+                MII_DEBUG_PRINTF("Disk UI: CPU reset complete\n");
             } else {  // INSERT
-                printf("Disk UI: disk inserted (no reset)\n");
+                MII_DEBUG_PRINTF("Disk UI: disk inserted (no reset)\n");
                 
                 mii_bank_t *sw_bank = &g_mii->bank[MII_BANK_SW];
                 mii_bank_poke(sw_bank, SWKBD, 0);
@@ -359,10 +360,10 @@ static void handle_disk_loaded(void) {
                 clear_held_key();
             }
         } else {
-            printf("Disk UI: failed to mount disk to emulator\n");
+            MII_DEBUG_PRINTF("Disk UI: failed to mount disk to emulator\n");
         }
     } else {
-        printf("Disk UI: warning - no emulator reference, disk not mounted\n");
+        MII_DEBUG_PRINTF("Disk UI: warning - no emulator reference, disk not mounted\n");
     }
     disk_ui_hide();
 }
@@ -372,7 +373,7 @@ bool disk_ui_handle_key(uint8_t key) {
         return false;
     }
     
-    printf("Disk UI key: 0x%02X in state %d\n", key, ui_state);
+    MII_DEBUG_PRINTF("Disk UI key: 0x%02X in state %d\n", key, ui_state);
     
     bool handled = false;
     
@@ -397,20 +398,20 @@ bool disk_ui_handle_key(uint8_t key) {
                 selected_file = 0;
                 scroll_offset = 0;
                 ui_dirty = true;
-                printf("Disk UI: selecting file for drive %d\n", selected_drive + 1);
+                MII_DEBUG_PRINTF("Disk UI: selecting file for drive %d\n", selected_drive + 1);
             } else if (ui_state == DISK_UI_SELECT_FILE) {
                 // Proceed to action selection
                 ui_state = DISK_UI_SELECT_ACTION;
                 selected_action = 0;  // Default to Boot
                 ui_dirty = true;
-                printf("Disk UI: selecting action for file %d\n", selected_file);
+                MII_DEBUG_PRINTF("Disk UI: selecting action for file %d\n", selected_file);
             } else if (ui_state == DISK_UI_SELECT_ACTION) {
                 if (selected_action == 2) {  // Cancel
                     ui_state = DISK_UI_SELECT_FILE;
                     ui_dirty = true;
                 } else {
                     // Boot or Insert - show loading screen and load disk
-                    printf("Disk UI: loading disk %d to drive %d (%s)\n", 
+                    MII_DEBUG_PRINTF("Disk UI: loading disk %d to drive %d (%s)\n", 
                            selected_file, selected_drive + 1,
                            selected_action == 0 ? "BOOT" : "INSERT");
                     

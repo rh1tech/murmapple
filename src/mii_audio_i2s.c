@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "debug_log.h"
 
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
@@ -134,7 +135,7 @@ bool mii_audio_i2s_init(void)
     );
     
     if (!audio_state.producer_pool) {
-        printf("mii_audio_i2s_init: failed to create producer pool\n");
+        MII_DEBUG_PRINTF("mii_audio_i2s_init: failed to create producer pool\n");
         return false;
     }
     
@@ -160,7 +161,7 @@ bool mii_audio_i2s_init(void)
     // Connect producer pool to I2S output
     bool ok = audio_i2s_connect_extra(audio_state.producer_pool, false, 0, 0, NULL);
     if (!ok) {
-        printf("mii_audio_i2s_init: audio_i2s_connect_extra failed\n");
+        MII_DEBUG_PRINTF("mii_audio_i2s_init: audio_i2s_connect_extra failed\n");
         return false;
     }
     

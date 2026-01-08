@@ -18,6 +18,7 @@
 #include "mii_bank.h"
 #include "mii_dd.h"
 #include "md5.h"
+#include "debug_log.h"
 
 #ifndef FCC
 #define FCC(_a,_b,_c,_d) (((_a)<<24)|((_b)<<16)|((_c)<<8)|(_d))
@@ -120,7 +121,7 @@ mii_dd_drive_load(
 	if (dd->file == file)
 		return 0;
 	if (dd->file) {
-		printf("%s: %s unloading %s\n", __func__,
+		MII_DEBUG_PRINTF("%s: %s unloading %s\n", __func__,
 				dd->name,
 				dd->file->pathname);
 		mii_dd_file_dispose(dd->dd, dd->file);
@@ -129,12 +130,12 @@ mii_dd_drive_load(
 	if (!file)
 		return 0;
 	dd->file = file;
-	printf("%s: %s loading %s\n", __func__,
+	MII_DEBUG_PRINTF("%s: %s loading %s\n", __func__,
 				dd->name, file->pathname);
 	if (dd->ro || dd->wp)
 		return 0;
 	if (mii_dd_overlay_load(dd) < 0) {
-		printf("%s: No overlay to load, we're fine for now\n", __func__);
+		MII_DEBUG_PRINTF("%s: No overlay to load, we're fine for now\n", __func__);
 		// no overlay.. what to do?
 	}
 	return 0;
@@ -153,7 +154,7 @@ mii_dd_file_load(
     int err;
     int fd = open(pathname, flags);
     if (fd < 0) {
-		printf("%s: %s: Retrying Read only\n", __func__, pathname);
+		MII_DEBUG_PRINTF("%s: %s: Retrying Read only\n", __func__, pathname);
 		if (flags & (O_RDWR | O_WRONLY)) {
 			flags &= ~(O_RDWR | O_WRONLY);
 			flags |= O_RDONLY;
@@ -161,7 +162,7 @@ mii_dd_file_load(
 		}
 	}
 	if (fd < 0) {
-		printf("%s: %s: Failed to open: %s\n",
+		MII_DEBUG_PRINTF("%s: %s: Failed to open: %s\n",
 				__func__, pathname, strerror(errno));
         return NULL;
     }
@@ -209,7 +210,7 @@ mii_dd_file_load(
 			res->format = MII_DD_FILE_2MG;
 			res->map += 64;
 		}
-		printf("%s: suffix %s, format %d\n", __func__, suffix, res->format);
+		MII_DEBUG_PRINTF("%s: suffix %s, format %d\n", __func__, suffix, res->format);
 	}
 	return res;
 bail:
@@ -259,7 +260,7 @@ mii_dd_overlay_load(
 	}
 	int fd = open(filename, O_RDWR, 0666);
 	if (fd == -1) {
-		printf("%s: overlay %s: %s\n", __func__,
+		MII_DEBUG_PRINTF("%s: overlay %s: %s\n", __func__,
 				filename, strerror(errno));
 		free(filename);
 		return -1;
@@ -271,17 +272,17 @@ mii_dd_overlay_load(
 	mii_dd_overlay_header_t * h = (mii_dd_overlay_header_t *)file->start;
 
 	if (h->magic != FCC('M','I','O','V')) {
-		printf("Overlay file %s has invalid magic\n", filename);
+		MII_DEBUG_PRINTF("Overlay file %s has invalid magic\n", filename);
 		mii_dd_file_dispose(dd->dd, file);
 		return -1;
 	}
 	if (h->version != 1) {
-		printf("Overlay file %s has invalid version\n", filename);
+		MII_DEBUG_PRINTF("Overlay file %s has invalid version\n", filename);
 		mii_dd_file_dispose(dd->dd, file);
 		return -1;
 	}
 	if (h->size != dd->file->size / 512) {
-		printf("Overlay file %s has invalid size\n", filename);
+		MII_DEBUG_PRINTF("Overlay file %s has invalid size\n", filename);
 		mii_dd_file_dispose(dd->dd, file);
 		return -1;
 	}
@@ -293,7 +294,7 @@ mii_dd_overlay_load(
 	MD5_Final(md5, &d5);
 
 	if (memcmp(md5, h->src_md5, 16)) {
-		printf("Overlay file %s has mismatched HASH!\n", filename);
+		MII_DEBUG_PRINTF("Overlay file %s has mismatched HASH!\n", filename);
 		mii_dd_file_dispose(dd->dd, file);
 		return -1;
 	}
@@ -319,7 +320,7 @@ mii_dd_overlay_prepare(
 	if (!(dd->file->format == MII_DD_FILE_PO &&
 			dd->file->size != 143360))
 		return 0;
-	printf("%s: %s Preparing Overlay file\n", __func__, dd->name);
+	MII_DEBUG_PRINTF("%s: %s Preparing Overlay file\n", __func__, dd->name);
 	uint32_t src_blocks = dd->file->size / 512;
 	uint32_t bitmap_size = (src_blocks + 63) / 64;
 	uint32_t blocks_size = src_blocks * 512;
@@ -334,9 +335,9 @@ mii_dd_overlay_prepare(
 	}
 	int fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0666);
 	if (fd == -1) {
-		printf("%s: Failed to create overlay file %s: %s\n", __func__,
+		MII_DEBUG_PRINTF("%s: Failed to create overlay file %s: %s\n", __func__,
 				filename, strerror(errno));
-		printf("%s: Allocating a RAM one, lost on quit!\n", __func__);
+		MII_DEBUG_PRINTF("%s: Allocating a RAM one, lost on quit!\n", __func__);
 		dd->overlay.file = mii_dd_file_in_ram(dd->dd, filename, size, O_RDWR);
 	} else {
 		ftruncate(fd, size);

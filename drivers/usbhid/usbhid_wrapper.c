@@ -10,18 +10,9 @@
 #include "usbhid_wrapper.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include "nespad/nespad.h"
 
 #ifdef USB_HID_ENABLED
-
-// NES-style button bit definitions (must match nespad.h)
-#define DPAD_A      0x000001
-#define DPAD_B      0x000004
-#define DPAD_SELECT 0x000010
-#define DPAD_START  0x000040
-#define DPAD_UP     0x000100
-#define DPAD_DOWN   0x000200
-#define DPAD_LEFT   0x000400
-#define DPAD_RIGHT  0x000800
 
 // Track Delete key state for reset combo
 static bool delete_key_pressed = false;

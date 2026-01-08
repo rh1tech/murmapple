@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdalign.h>
+#include "debug_log.h"
 #include "hardware/dma.h"
 #include "hardware/pio.h"
 #include "pico/time.h"
@@ -163,7 +164,7 @@ bool hdmi_check_and_restart(void) {
     uint32_t current = irq_inx;
     if (current == last_check_irq) {
         // IRQ count hasn't changed in >33ms - HDMI has likely stalled
-        printf("HDMI: DMA stalled (irq_inx=%lu), restarting...\n", (unsigned long)current);
+        MII_DEBUG_PRINTF("HDMI: DMA stalled (irq_inx=%lu), restarting...\n", (unsigned long)current);
         hdmi_init();
         last_check_irq = irq_inx;
         last_check_time = now;
@@ -446,10 +447,10 @@ static inline bool hdmi_init() {
 
     offs_prg1 = pio_add_program(PIO_VIDEO_ADDR, &pio_program_conv_addr_HDMI);
     offs_prg0 = pio_add_program(PIO_VIDEO, &program_PIO_HDMI);
-    printf("HDMI: PIO programs loaded at offsets %u and %u\n", offs_prg0, offs_prg1);
+    MII_DEBUG_PRINTF("HDMI: PIO programs loaded at offsets %u and %u\n", offs_prg0, offs_prg1);
     
     pio_set_x(PIO_VIDEO_ADDR, SM_conv, ((uint32_t)conv_color >> 12));
-    printf("HDMI: conv_color table at %p\n", conv_color);
+    MII_DEBUG_PRINTF("HDMI: conv_color table at %p\n", conv_color);
 
     //заполнение палитры (skip only sync control 240-243, but initialize 244-254)
     for (int ci = 0; ci < 240; ci++) graphics_set_palette_hdmi(ci, palette[ci]);
@@ -693,7 +694,7 @@ void graphics_set_palette_hdmi(uint8_t i, uint32_t color888) {
 #define RGB888(r, g, b) ((r<<16) | (g << 8 ) | b )
 
 void graphics_init_hdmi() {
-    printf("HDMI: Claiming PIO resources...\n");
+    MII_DEBUG_PRINTF("HDMI: Claiming PIO resources...\n");
     
     // Initialize default palette with basic colors before hdmi_init
     // This ensures the conv_color table has valid TMDS data
@@ -720,17 +721,17 @@ void graphics_init_hdmi() {
     dma_chan_pal_conv_ctrl = dma_claim_unused_channel(true);
     dma_chan_pal_conv = dma_claim_unused_channel(true);
 
-    printf("HDMI: SM_video=%u, SM_conv=%u\n", SM_video, SM_conv);
-    printf("HDMI: DMA channels: ctrl=%u, data=%u, pal_ctrl=%u, pal=%u\n",
-           dma_chan_ctrl, dma_chan, dma_chan_pal_conv_ctrl, dma_chan_pal_conv);
-    printf("HDMI: Base pin=%d, CLK pins=%d-%d, DATA pins=%d-%d\n",
-           HDMI_BASE_PIN, beginHDMI_PIN_clk, beginHDMI_PIN_clk+1,
-           beginHDMI_PIN_data, beginHDMI_PIN_data+5);
-    printf("HDMI: Calling hdmi_init()...\n");
+        MII_DEBUG_PRINTF("HDMI: SM_video=%u, SM_conv=%u\n", SM_video, SM_conv);
+        MII_DEBUG_PRINTF("HDMI: DMA channels: ctrl=%u, data=%u, pal_ctrl=%u, pal=%u\n",
+            dma_chan_ctrl, dma_chan, dma_chan_pal_conv_ctrl, dma_chan_pal_conv);
+        MII_DEBUG_PRINTF("HDMI: Base pin=%d, CLK pins=%d-%d, DATA pins=%d-%d\n",
+            HDMI_BASE_PIN, beginHDMI_PIN_clk, beginHDMI_PIN_clk+1,
+            beginHDMI_PIN_data, beginHDMI_PIN_data+5);
+        MII_DEBUG_PRINTF("HDMI: Calling hdmi_init()...\n");
     
     hdmi_init();
     
-    printf("HDMI: Init complete\n");
+    MII_DEBUG_PRINTF("HDMI: Init complete\n");
 }
 
 void graphics_set_bgcolor_hdmi(uint32_t color888) //определяем зарезервированный цвет в палитре
@@ -788,7 +789,7 @@ void graphics_init_irq_on_this_core(void) {
     irq_set_exclusive_handler(VIDEO_DMA_IRQ, dma_handler_HDMI);
     irq_set_priority(VIDEO_DMA_IRQ, 0);
     irq_set_enabled(VIDEO_DMA_IRQ, true);
-    printf("HDMI: IRQ handler set on core %u\n", get_core_num());
+    MII_DEBUG_PRINTF("HDMI: IRQ handler set on core %u\n", get_core_num());
 }
 
 void graphics_rebind_irq_to_current_core(void) {
@@ -817,8 +818,8 @@ void graphics_rebind_irq_to_current_core(void) {
     irq_set_enabled(VIDEO_DMA_IRQ, true);
     
     restore_interrupts(save);
-    
-    printf("HDMI: IRQ handler rebound to core %u\n", get_core_num());
+
+    MII_DEBUG_PRINTF("HDMI: IRQ handler rebound to core %u\n", get_core_num());
 }
 
 void set_palette(uint8_t n) {

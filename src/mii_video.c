@@ -16,6 +16,7 @@
 #include "mii_bank.h"
 #include "mii_sw.h"
 #include "minipt.h"
+#include "debug_log.h"
 
 
 #if defined(__AVX2__)
@@ -1100,7 +1101,7 @@ mii_video_init(
 	video->vbl_phase = 0;
 	mii->video.timer_id = mii_timer_register(mii,
 				mii_video_vbl_timer_cb, NULL, MII_VBL_DOWN_CYCLES, "vbl_timer");
-	printf("VBL timer registered (id=%d)\n", mii->video.timer_id);
+	MII_DEBUG_PRINTF("VBL timer registered (id=%d)\n", mii->video.timer_id);
 #else
 	mii->video.timer_id = mii_timer_register(mii,
 				mii_video_timer_cb, NULL, MII_VIDEO_H_CYCLES, __func__);
@@ -1327,16 +1328,16 @@ _mii_mish_video(
 	mii_video_t * video = &mii->video;
 
 	if (!argv[1]) {
-		printf("VIDEO mode %d\n", video->color_mode);
-		printf(" ROM %s (%s)\n", video->rom->name, video->rom->description);
-		printf(" ROM bank %s\n", video->rom_bank ? "ON" : "OFF");
-		printf(" AN3 mode %d\n", video->an3_mode);
-		printf(" Monochrome %s\n", video->monochrome ? "ON" : "OFF");
+		MII_DEBUG_PRINTF("VIDEO mode %d\n", video->color_mode);
+		MII_DEBUG_PRINTF(" ROM %s (%s)\n", video->rom->name, video->rom->description);
+		MII_DEBUG_PRINTF(" ROM bank %s\n", video->rom_bank ? "ON" : "OFF");
+		MII_DEBUG_PRINTF(" AN3 mode %d\n", video->an3_mode);
+		MII_DEBUG_PRINTF(" Monochrome %s\n", video->monochrome ? "ON" : "OFF");
 		return;
 	}
 	if (!strcmp(argv[1], "clut")) {
 		for (int i = 0; i < 16; i++) {
-			printf("%01x: %08x %08x %08x\n", i,
+			MII_DEBUG_PRINTF("%01x: %08x %08x %08x\n", i,
 					video->clut.lores[0][i],
 					video->clut.lores[1][i],
 					video->clut.dhires[i]);
@@ -1346,7 +1347,7 @@ _mii_mish_video(
 	if (!strcmp(argv[1], "color")) {
 		mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 		uint8_t reg = mii_bank_peek(sw, SWAN3_REGISTER);
-		printf("AN3 REG %d -> %d\n", reg, 1);
+		MII_DEBUG_PRINTF("AN3 REG %d -> %d\n", reg, 1);
 		video->an3_mode = 1;
 		mii_bank_poke(sw, SWAN3_REGISTER, 1);
 		_mii_video_mode_changed(video, mii->sw_state);
@@ -1356,7 +1357,7 @@ _mii_mish_video(
 	if (!strcmp(argv[1], "mono")) {
 		mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 		uint8_t reg = mii_bank_peek(sw, SWAN3_REGISTER);
-		printf("AN3 REG %d -> %d\n", reg, 0);
+		MII_DEBUG_PRINTF("AN3 REG %d -> %d\n", reg, 0);
 		video->an3_mode = 0;
 		mii_bank_poke(sw, SWAN3_REGISTER, 0);
 		_mii_video_mode_changed(video, mii->sw_state);
@@ -1373,12 +1374,12 @@ _mii_mish_video(
 		mii_rom_t * rom = mii_rom_get_class(NULL, "video");
 		while (rom && rom->name) {
 			if (name && !strcmp(rom->name, name)) {
-				printf("ROM set to %s (%s)\n", rom->name, rom->description);
+				MII_DEBUG_PRINTF("ROM set to %s (%s)\n", rom->name, rom->description);
 				mii->video.rom = rom;
 				mii_video_full_refresh(mii);
 				return;
 			} else if (!name) {
-				printf("ROM %s (%s)\n", rom->name, rom->description);
+				MII_DEBUG_PRINTF("ROM %s (%s)\n", rom->name, rom->description);
 			}
 			rom = SLIST_NEXT(rom, self);
 		}
@@ -1389,12 +1390,12 @@ _mii_mish_video(
 		// toggle video_bank and display wether it will do anything with this ROM
 		if (video->rom->len > (4*1024)) {
 			video->rom_bank = !video->rom_bank;
-			printf("ROM %s alternative bank %s\n",
+			MII_DEBUG_PRINTF("ROM %s alternative bank %s\n",
 					video->rom->name,
 					video->rom_bank ? "ON" : "OFF");
 			mii_video_full_refresh(mii);
 		} else {
-			printf("Video rom %s doesn't have alternative charsets\n",
+			MII_DEBUG_PRINTF("Video rom %s doesn't have alternative charsets\n",
 					video->rom->name);
 		}
 		return;

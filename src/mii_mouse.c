@@ -20,6 +20,7 @@
 
 #include "mii.h"
 #include "mii_bank.h"
+#include "debug_log.h"
 
 /*
  * Coded against this information
@@ -160,7 +161,7 @@ _mii_mouse_init(
 	slot->drv_priv = c;
 	c->mii = mii;
 
-	printf("%s loading in slot %d\n", __func__, slot->id + 1);
+	MII_DEBUG_PRINTF("%s loading in slot %d\n", __func__, slot->id + 1);
 
 	c->slot_offset = slot->id + 1 + 0xc0;
 
@@ -237,7 +238,7 @@ _mii_mouse_access(
 				byte &= 0xf;
 				mii_bank_poke(main, MOUSE_MODE + c->slot_offset, byte);
 				mii->mouse.enabled = byte & MOUSE_MODE_ON;
-				printf("%s: mode %02x: %s Move:%d Button:%d VBL:%d\n", __func__,
+				MII_DEBUG_PRINTF("%s: mode %02x: %s Move:%d Button:%d VBL:%d\n", __func__,
 						byte, mii->mouse.enabled ? "ON " : "OFF",
 						byte & MOUSE_MODE_MOVE_IRQ ? 1 : 0,
 						byte & MOUSE_MODE_BUT_IRQ ? 1 : 0,
@@ -293,9 +294,9 @@ _mii_mouse_access(
 				mii->mouse.max_y = mii_bank_peek(main, CLAMP_MAX_LO) |
 									(mii_bank_peek(main, CLAMP_MAX_HI) << 8);
 			}
-			printf("Mouse clamp to %d,%d - %d,%d\n",
-					mii->mouse.min_x, mii->mouse.min_y,
-					mii->mouse.max_x, mii->mouse.max_y);
+			    MII_DEBUG_PRINTF("Mouse clamp to %d,%d - %d,%d\n",
+				    mii->mouse.min_x, mii->mouse.min_y,
+				    mii->mouse.max_x, mii->mouse.max_y);
 			break;
 		case 8: // home mouse
 			mii->mouse.x = mii->mouse.min_x;
@@ -308,8 +309,8 @@ _mii_mouse_access(
 			mii_bank_poke(main, MOUSE_MODE + c->slot_offset, 0x0);
 			break;
 		default:
-			printf("%s PC:%04x addr %04x %02x wr:%d\n", __func__,
-					mii->cpu.PC, addr, byte, write);
+		    MII_DEBUG_PRINTF("%s PC:%04x addr %04x %02x wr:%d\n", __func__,
+			    mii->cpu.PC, addr, byte, write);
 			break;
 	}
 	return 0;
@@ -339,9 +340,9 @@ _mii_mish_mouse(
 
 	if (!argv[1] || !strcmp(argv[1], "status")) {
 		mii_card_mouse_t *c;
-		printf("mouse: cards:\n");
+		MII_DEBUG_PRINTF("mouse: cards:\n");
 		STAILQ_FOREACH(c, &_mii_card_mouse, self) {
-			printf("mouse %d:\n", c->slot->id + 1);
+			MII_DEBUG_PRINTF("mouse %d:\n", c->slot->id + 1);
 
 		#define MCM(__n) { .a = __n, .s = (#__n)+6 }
 			static const struct {
@@ -353,7 +354,7 @@ _mii_mish_mouse(
 			};
 			for (int i = 0; i < 6; i++) {
 				uint8_t val = mii_bank_peek(main, mouse_regs[i].a + c->slot_offset);
-				printf(" $%04x: %-10s: $%02x\n",
+				MII_DEBUG_PRINTF(" $%04x: %-10s: $%02x\n",
 				mouse_regs[i].a, mouse_regs[i].s, val);
 			}
 			uint8_t status = mii_bank_peek(main, MOUSE_STATUS + c->slot_offset);
@@ -362,18 +363,18 @@ _mii_mish_mouse(
 				"PREV_BUT1", "MOVE_IRQ", "BUT_IRQ", "VBL_IRQ",
 				"BUT1", "MOVED", "PREV_BUT0", "BUT0",
 			};
-			printf("  status: ");
+			MII_DEBUG_PRINTF("  status: ");
 			for (int i = 0; i < 8; i++)
-				printf("%s ", (status & (1 << i)) ? status_bits[i] : ".");
-			printf("\n");
+				MII_DEBUG_PRINTF("%s ", (status & (1 << i)) ? status_bits[i] : ".");
+			MII_DEBUG_PRINTF("\n");
 			// printf individual mode bits
 			uint8_t mode = mii_bank_peek(main, MOUSE_MODE + c->slot_offset);
 			static char * mode_bits[] = {
 				"ON", "MOVE_IRQ", "BUT_IRQ", "VBL_IRQ",
 			};
-			printf("  mode: ");
+			MII_DEBUG_PRINTF("  mode: ");
 			for (int i = 0; i < 4; i++)
-				printf("%s ", (mode & (1 << i)) ? mode_bits[i] : ".");
+				MII_DEBUG_PRINTF("%s ", (mode & (1 << i)) ? mode_bits[i] : ".");
 		}
 		return;
 	}

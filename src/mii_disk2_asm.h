@@ -10,6 +10,7 @@
 
 #include "mii_disk2.h"
 #include "mii_floppy.h"
+#include "debug_log.h"
 #include <stddef.h>
 
 // Forward declaration of the assembly function
@@ -30,19 +31,21 @@ extern void mii_disk2_lss_tick_asm(
 
 // Call this function once at startup to print actual offsets for debugging
 static inline void mii_disk2_print_offsets(void) {
-    printf("=== mii_card_disk2_t offsets ===\n");
-    printf("  clock:          %zu\n", offsetof(mii_card_disk2_t, clock));
+#if ENABLE_DEBUG_LOGS
+    MII_DEBUG_PRINTF("=== mii_card_disk2_t offsets ===\n");
+    MII_DEBUG_PRINTF("  clock:          %zu\n", offsetof(mii_card_disk2_t, clock));
     // head, lss_state are bit-fields, can't use offsetof directly
     // They follow clock (uint16_t at +40) as: head (4 bits), then lss_state:4, lss_mode:4
-    printf("  head:           ~%zu (bit-field after clock)\n", offsetof(mii_card_disk2_t, clock) + 2);
-    printf("  data_register:  %zu\n", offsetof(mii_card_disk2_t, data_register));
-    printf("  write_register: %zu\n", offsetof(mii_card_disk2_t, write_register));
-    printf("=== mii_floppy_t offsets ===\n");
+    MII_DEBUG_PRINTF("  head:           ~%zu (bit-field after clock)\n", offsetof(mii_card_disk2_t, clock) + 2);
+    MII_DEBUG_PRINTF("  data_register:  %zu\n", offsetof(mii_card_disk2_t, data_register));
+    MII_DEBUG_PRINTF("  write_register: %zu\n", offsetof(mii_card_disk2_t, write_register));
+    MII_DEBUG_PRINTF("=== mii_floppy_t offsets ===\n");
     // write_protected is also a bit-field at start
-    printf("  bit_timing:     %zu\n", offsetof(mii_floppy_t, bit_timing));
-    printf("  bit_position:   %zu\n", offsetof(mii_floppy_t, bit_position));
-    printf("  random_position:%zu\n", offsetof(mii_floppy_t, random_position));
-    printf("  random:         %zu\n", offsetof(mii_floppy_t, random));
+    MII_DEBUG_PRINTF("  bit_timing:     %zu\n", offsetof(mii_floppy_t, bit_timing));
+    MII_DEBUG_PRINTF("  bit_position:   %zu\n", offsetof(mii_floppy_t, bit_position));
+    MII_DEBUG_PRINTF("  random_position:%zu\n", offsetof(mii_floppy_t, random_position));
+    MII_DEBUG_PRINTF("  random:         %zu\n", offsetof(mii_floppy_t, random));
+#endif
 }
 
 #endif // MII_RP2350

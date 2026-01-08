@@ -12,6 +12,7 @@
 #include "mii_65c02.h"
 #include "mii_65c02_ops.h"
 #include "mii_65c02_disasm.h"
+#include "debug_log.h"
 
 int
 mii_cpu_disasm_one(
@@ -130,6 +131,6 @@ mii_cpu_disasm(
 		char out[256] = {0};
 		i += mii_cpu_disasm_one(prog + i, pc + i, out, sizeof(out),
 					MII_DUMP_DIS_PC | MII_DUMP_DIS_DUMP_HEX);
-		printf("%s\n", out);
+		MII_DEBUG_PRINTF("%s\n", out);
 	}
 }

@@ -15,6 +15,7 @@
 
 #include "mii_bank.h"
 #include "mii_dd.h"
+#include "debug_log.h"
 
 void
 mii_dd_system_init(
@@ -57,7 +58,7 @@ mii_dd_drive_load(
 	// On Pico, we just update the pointer - no mmap to manage
 	dd->file = file;
 	if (file) {
-		printf("%s: %s loading %s\n", __func__,
+		MII_DEBUG_PRINTF("%s: %s loading %s\n", __func__,
 					dd->name, file->pathname);
 	}
 	return 0;
@@ -107,7 +108,7 @@ mii_dd_file_load(
 		uint16_t flags)
 {
 	// Not implemented for Pico - we use disk_loader.c instead
-	printf("%s: ERROR - not implemented on Pico. Use disk_loader.c\n", __func__);
+	MII_DEBUG_PRINTF("%s: ERROR - not implemented on Pico. Use disk_loader.c\n", __func__);
 	return NULL;
 }
 
@@ -119,7 +120,7 @@ mii_dd_file_in_ram(
 		uint16_t flags)
 {
 	// Not implemented for Pico - we use disk_loader.c instead
-	printf("%s: ERROR - not implemented on Pico. Use disk_loader.c\n", __func__);
+	MII_DEBUG_PRINTF("%s: ERROR - not implemented on Pico. Use disk_loader.c\n", __func__);
 	return NULL;
 }
 

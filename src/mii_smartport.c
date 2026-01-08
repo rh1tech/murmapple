@@ -24,6 +24,7 @@
 #include "mii_bank.h"
 #include "mii_dd.h"
 #include "mii_slot.h"
+#include "debug_log.h"
 
 
 #define MII_SM_DRIVE_COUNT 2
@@ -89,9 +90,9 @@ _mii_hd_callback(
 							&c->drive[unit], bank, buffer, blk, 1) != 0;
 		}	break;
 		default: {
-			printf("%s cmd %02x unit %02x buffer %04x blk %04x\n", __func__,
+			MII_DEBUG_PRINTF("%s cmd %02x unit %02x buffer %04x blk %04x\n", __func__,
 					command, unit, buffer, blk);
-			printf("*** %s: unhandled command %02x\n", __func__, command);
+			MII_DEBUG_PRINTF("*** %s: unhandled command %02x\n", __func__, command);
 			mii->cpu.P.C = 1;
 		}
 	}
@@ -179,7 +180,7 @@ _mii_sm_callback(
 					mii->cpu.A = 0x21; // bad status
 				}
 			} else {
-				printf("%s: unit %d bad status %d\n",
+			MII_DEBUG_PRINTF("%s: unit %d bad status %d\n",
 						__func__, spUnit, status);
 				mii->cpu.P.C = 1;
 				mii->cpu.A = 0x21; // bad status
@@ -189,13 +190,13 @@ _mii_sm_callback(
 			mii->cpu.P.C = 0;
 			mii->cpu.A = 0;
 			if (spPCount != 3) {
-				printf("%s: unit %d bad pcount %d\n",
+				MII_DEBUG_PRINTF("%s: unit %d bad pcount %d\n",
 						__func__, spUnit, spPCount);
 				mii->cpu.P.C = 1;
 				break;
 			}
 			if (spUnit == 0 || spUnit >= MII_SM_DRIVE_COUNT) {
-				printf("%s: unit %d out of range\n", __func__, spUnit);
+				MII_DEBUG_PRINTF("%s: unit %d out of range\n", __func__, spUnit);
 				mii->cpu.P.C = 1;
 				mii->cpu.A = 0x28;
 				break;
@@ -211,7 +212,7 @@ _mii_sm_callback(
 				break;
 			}
 			if (blk >= c->drive[spUnit].file->size / 512) {
-				printf("%s: block %d out of range\n",
+				MII_DEBUG_PRINTF("%s: block %d out of range\n",
 						__func__, blk);
 				mii->cpu.P.C = 1;
 				mii->cpu.A = 0x2d;
@@ -231,13 +232,13 @@ _mii_sm_callback(
 			mii->cpu.P.C = 0;
 			mii->cpu.A = 0;
 			if (spPCount != 3) {
-				printf("%s: unit %d bad pcount %d\n",
+				MII_DEBUG_PRINTF("%s: unit %d bad pcount %d\n",
 						__func__, spUnit, spPCount);
 				mii->cpu.P.C = 1;
 				break;
 			}
 			if (spUnit >= MII_SM_DRIVE_COUNT) {
-				printf("%s: unit %d out of range\n",
+				MII_DEBUG_PRINTF("%s: unit %d out of range\n",
 						__func__, spUnit);
 				mii->cpu.P.C = 1;
 				mii->cpu.A = 0x28;
@@ -254,7 +255,7 @@ _mii_sm_callback(
 				break;
 			}
 			if (blk >= c->drive[spUnit].file->size / 512) {
-				printf("%s: block %d out of range\n",
+				MII_DEBUG_PRINTF("%s: block %d out of range\n",
 						__func__, blk);
 				mii->cpu.P.C = 1;
 				mii->cpu.A = 0x2d;

@@ -42,6 +42,7 @@ make && A2_TTY=/dev/tntX ./surl-server
 #include "mii_ssc.h"
 #include "fifo_declare.h"
 #include "bsd_queue.h"
+#include "debug_log.h"
 
 #include <termios.h>
 #include <pty.h>
@@ -197,7 +198,7 @@ static void*
 _mii_ssc_thread(
 		void *param)
 {
-	printf("%s: start\n", __func__);
+	MII_DEBUG_PRINTF("%s: start\n", __func__);
 	do {
 		/*
 		 * Get commands from the MII running thread. Add/remove cards
@@ -208,18 +209,18 @@ _mii_ssc_thread(
 			switch (cmd.cmd) {
 				case MII_SSC_STATE_START: {
 					mii_card_ssc_t *c = cmd.card;
-					printf("%s: start slot %d\n", __func__, c->slot->id);
+					MII_DEBUG_PRINTF("%s: start slot %d\n", __func__, c->slot->id);
 					STAILQ_INSERT_TAIL(&_mii_card_ssc_started, c, self);
 					c->state = MII_SSC_STATE_RUNNING;
 				}	break;
 				case MII_SSC_STATE_STOP: {
 					mii_card_ssc_t *c = cmd.card;
-					printf("%s: stop slot %d\n", __func__, c->slot->id);
+					MII_DEBUG_PRINTF("%s: stop slot %d\n", __func__, c->slot->id);
 					STAILQ_REMOVE(&_mii_card_ssc_started, c, mii_card_ssc_t, self);
 					c->state = MII_SSC_STATE_STOPPED;
 				}	break;
 				case MII_THREAD_TERMINATE:
-					printf("%s: terminate\n", __func__);
+					MII_DEBUG_PRINTF("%s: terminate\n", __func__);
 					return NULL;
 			}
 		}
@@ -256,7 +257,7 @@ _mii_ssc_thread(
 			// there are OK errors, we just ignore them
 			if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
 				continue;
-			printf("%s ssc select: %s\n", __func__, strerror(errno));
+			MII_DEBUG_PRINTF("%s ssc select: %s\n", __func__, strerror(errno));
 			break;
 		}
 		if (res == 0)	// timeout
@@ -280,7 +281,7 @@ _mii_ssc_thread(
 					if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
 						break;
 					c->tty_fd = -1;
-					printf("%s ssc read: %s\n", __func__, strerror(errno));
+					MII_DEBUG_PRINTF("%s ssc read: %s\n", __func__, strerror(errno));
 					break;
 				}
 				for (int i = 0; i < res; i++)
@@ -301,7 +302,7 @@ _mii_ssc_thread(
 				if (res < 0) {
 					if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
 						break;
-					printf("%s ssc write: %s\n", __func__, strerror(errno));
+					MII_DEBUG_PRINTF("%s ssc write: %s\n", __func__, strerror(errno));
 					break;
 				}
 				// flush what we've just written
@@ -334,12 +335,12 @@ _mii_ssc_thread_start(
 	if (c->state > MII_SSC_STATE_INIT && c->state < MII_SSC_STATE_STOP)
 		return;
 	if (c->tty_fd < 0) {
-		printf("%s TTY not open, skip\n", __func__);
+		MII_DEBUG_PRINTF("%s TTY not open, skip\n", __func__);
 		return;
 	}
 	// create as socketpair in _mii_ssc_signal
 	if (socketpair(AF_UNIX, SOCK_STREAM, 0, _mii_ssc_signal) < 0) {
-		printf("%s: socketpair: %s\n", __func__, strerror(errno));
+		MII_DEBUG_PRINTF("%s: socketpair: %s\n", __func__, strerror(errno));
 		return;
 	}
 	c->state = MII_SSC_STATE_START;
@@ -349,7 +350,7 @@ _mii_ssc_thread_start(
 	mii_timer_set(c->mii, c->timer_check, c->timer_delay);
 	// start, or kick the thread awake
 	if (!_mii_ssc_thread_id) {
-		printf("%s: starting thread\n", __func__);
+		MII_DEBUG_PRINTF("%s: starting thread\n", __func__);
 		pthread_create(&_mii_ssc_thread_id, NULL, _mii_ssc_thread, NULL);
 	} else {
 		_mii_ssc_thread_signal(c);
@@ -384,10 +385,10 @@ _mii_ssc_select(
 	if (c->slot->aux_rom_selected)
 		return false;
 	uint16_t pc = c->mii->cpu.PC;
-	printf("SSC%d SELECT auxrom PC:%04x\n", c->slot->id+1, pc);
+	MII_DEBUG_PRINTF("SSC%d SELECT auxrom PC:%04x\n", c->slot->id+1, pc);
 	/* Supports when the ROM starts prodding into the ROM */
 	if (c->state != MII_SSC_STATE_RUNNING) {
-		printf("SSC%d: start card from ROM poke? (PC $%04x)?\n",
+		MII_DEBUG_PRINTF("SSC%d: start card from ROM poke? (PC $%04x)?\n",
 				c->slot->id+1, pc);
 		if ((pc & 0xff00) == (0xc100 + (c->slot->id << 8)) ||
 				(pc >> 12) >= 0xc) {
@@ -430,7 +431,7 @@ _mii_ssc_timer_cb(
 	uint8_t r_irqen = !(c->command & (1 << SSC_6551_COMMAND_IRQ_R));
 #if 0
 	if (old != c->status)
-		printf("SSC%d New Status %08b RX:%2d TX:%2d t_irqen:%d r_irqen:%d\n",
+		MII_DEBUG_PRINTF("SSC%d New Status %08b RX:%2d TX:%2d t_irqen:%d r_irqen:%d\n",
 			c->slot->id+1, c->status,
 			mii_ssc_fifo_get_read_size(&c->rx), mii_ssc_fifo_get_write_size(&c->tx),
 			t_irqen, r_irqen);
@@ -495,13 +496,13 @@ _mii_scc_set_conf(
 			int master = 0;
 			int res = openpty(&master, &new_fd, c->tty_path, NULL, NULL);
 			if (res < 0) {
-				printf("SSC%d openpty: %s\n", c->slot->id+1, strerror(errno));
+				MII_DEBUG_PRINTF("SSC%d openpty: %s\n", c->slot->id+1, strerror(errno));
 				return -1;
 			}
 		} else {
 			int res = open(c->tty_path, O_RDWR | O_NOCTTY | O_NONBLOCK);
 			if (res < 0) {
-				printf("SSC%d open(%s): %s\n", c->slot->id+1,
+				MII_DEBUG_PRINTF("SSC%d open(%s): %s\n", c->slot->id+1,
 						c->tty_path, strerror(errno));
 				return -1;
 			}
@@ -513,7 +514,7 @@ _mii_scc_set_conf(
 		c->tty_fd = new_fd;
 	}
 	if (c->tty_fd < 0) {
-		printf("SSC%d: %s TTY not open, skip\n", c->slot->id+1, __func__);
+		MII_DEBUG_PRINTF("SSC%d: %s TTY not open, skip\n", c->slot->id+1, __func__);
 		return -1;
 	}
 	// get current terminal settings
@@ -622,17 +623,17 @@ _mii_ssc_dispose(
 		_mii_ssc_thread_signal(c);
 		while (c->state == MII_SSC_STATE_RUNNING)
 			usleep(1000);
-		printf("SSC%d: stopped\n", c->slot->id+1);
+		MII_DEBUG_PRINTF("SSC%d: stopped\n", c->slot->id+1);
 	}
 	if (STAILQ_FIRST(&_mii_card_ssc_slots) == NULL && _mii_ssc_thread_id) {
-		printf("SSC%d: stopping thread\n", c->slot->id+1);
+		MII_DEBUG_PRINTF("SSC%d: stopping thread\n", c->slot->id+1);
 		pthread_t id = _mii_ssc_thread_id;
 		_mii_ssc_thread_id = 0;
 		mii_ssc_cmd_t cmd = { .cmd = MII_THREAD_TERMINATE };
 		mii_ssc_cmd_fifo_write(&_mii_ssc_cmd, cmd);
 		_mii_ssc_thread_signal(c);
 		pthread_join(id, NULL);
-		printf("SSC%d: thread stopped\n", c->slot->id+1);
+		MII_DEBUG_PRINTF("SSC%d: thread stopped\n", c->slot->id+1);
 	}
 	mii_irq_unregister(mii, c->irq_num);
 	free(c);
@@ -651,7 +652,7 @@ _mii_ssc_command_set(
 		_mii_ssc_thread_start(c);
 	}
 	if (c->tty_fd < 0) {
-		printf("SSC%d: %s TTY not open, skip\n", c->slot->id+1, __func__);
+		MII_DEBUG_PRINTF("SSC%d: %s TTY not open, skip\n", c->slot->id+1, __func__);
 		return;
 	}
 	/* This triggers the IRQ if it enabled when there is a IRQ flag on,
@@ -664,7 +665,7 @@ _mii_ssc_command_set(
 	}
 	int status;
 	if (ioctl(c->tty_fd, TIOCMGET, &status) == -1) {
-		printf("SSC%d: DTR/RTS: %s\n", c->slot->id+1, strerror(errno));
+		MII_DEBUG_PRINTF("SSC%d: DTR/RTS: %s\n", c->slot->id+1, strerror(errno));
 	}
 	int old = status;
 	status = (status & ~TIOCM_DTR) |
@@ -684,12 +685,12 @@ _mii_ssc_command_set(
 			break;
 	}
 	if (old != status) {
-		printf("%s%d: $%04x DTR %d RTS %d\n", __func__, c->slot->id+1,
+		MII_DEBUG_PRINTF("%s%d: $%04x DTR %d RTS %d\n", __func__, c->slot->id+1,
 				c->mii->cpu.PC,
 				(status & TIOCM_DTR) ? 1 : 0,
 				(status & TIOCM_RTS) ? 1 : 0);	// 0=on, 1=off
 		if (ioctl(c->tty_fd, TIOCMSET, &status) == -1) {
-			printf("SSC%d: DTR/RTS: %s\n", c->slot->id+1, strerror(errno));
+			MII_DEBUG_PRINTF("SSC%d: DTR/RTS: %s\n", c->slot->id+1, strerror(errno));
 		}
 	}
 	c->command = byte;
@@ -710,7 +711,7 @@ _mii_ssc_access(
 	switch (psw) {
 		case 0x1: // DIPSW1
 			if (!write) {
-				printf("%s%d: $%04x read DIPSW1 : %02x\n",
+				MII_DEBUG_PRINTF("%s%d: $%04x read DIPSW1 : %02x\n",
 						__func__, slot->id+1, mii->cpu.PC, c->dipsw1);
 				res = c->dipsw1;
 				/* this handle access by the ROM via PR#x and IN#x */
@@ -721,7 +722,7 @@ _mii_ssc_access(
 			break;
 		case 0x2: // DIPSW2
 			if (!write) {
-				printf("%s%d: $%04x read DIPSW2 : %02x\n",
+				MII_DEBUG_PRINTF("%s%d: $%04x read DIPSW2 : %02x\n",
 						__func__, slot->id+1, mii->cpu.PC, c->dipsw2);
 				res = c->dipsw2;
 			}
@@ -766,7 +767,7 @@ _mii_ssc_access(
 		}	break;
 		case 0x9: {// STATUS
 			if (write) {
-				printf("SSC%d: RESET request\n", c->slot->id+1);
+				MII_DEBUG_PRINTF("SSC%d: RESET request\n", c->slot->id+1);
 				_mii_ssc_command_set(c, 0x10);
 				break;
 			}
@@ -811,7 +812,7 @@ _mii_ssc_access(
 			float cps = (float)_mii_ssc_to_baud_rate[c->control & 0x0F] / framesize;
 			c->timer_delay = (1000000.0 * mii->speed) / cps;
 
-			printf("SSC%d: baud:%5d stop:%d data:%d parity:%d (total %d)\n",
+			MII_DEBUG_PRINTF("SSC%d: baud:%5d stop:%d data:%d parity:%d (total %d)\n",
 					c->slot->id+1,
 					_mii_ssc_to_baud_rate[c->control & 0x0F],
 					(c->control >> 7) & 1 ? 2 : 1,
@@ -847,7 +848,7 @@ _mii_ssc_command(
 			const mii_ssc_setconf_t * conf = param;
 			mii_card_ssc_t *c = slot->drv_priv;
 			res = _mii_scc_set_conf(c, conf, 0);
-			printf("SSC%d: set tty %s: %s\n",
+			MII_DEBUG_PRINTF("SSC%d: set tty %s: %s\n",
 					slot->id+1, conf->device, c->human_config);
 		}	break;
 		case MII_SLOT_SSC_GET_TTY: {
@@ -881,20 +882,20 @@ _mii_mish_ssc(
 {
 	if (!argv[1] || !strcmp(argv[1], "status")) {
 		mii_card_ssc_t *c;
-		printf("SSC: cards:\n");
+		MII_DEBUG_PRINTF("SSC: cards:\n");
 		STAILQ_FOREACH(c, &_mii_card_ssc_slots, self) {
-			printf("SSC %d: %s FD: %2d path:%s %s\n", c->slot->id+1,
+			MII_DEBUG_PRINTF("SSC %d: %s FD: %2d path:%s %s\n", c->slot->id+1,
 					c->state == MII_SSC_STATE_RUNNING ? "running" : "stopped",
 					c->tty_fd, c->tty_path, c->human_config);
 			// print FIFO status, fd status, registers etc
-			printf("  RX: %2d/%2d TX: %2d/%2d -- total rx:%6d tx:%6d\n",
+			MII_DEBUG_PRINTF("  RX: %2d/%2d TX: %2d/%2d -- total rx:%6d tx:%6d\n",
 					mii_ssc_fifo_get_read_size(&c->rx),
 					mii_ssc_fifo_get_write_size(&c->rx),
 					mii_ssc_fifo_get_read_size(&c->tx),
 					mii_ssc_fifo_get_write_size(&c->tx),
 					c->total_rx, c->total_tx);
-			printf("  DIPSW1: %08b DIPSW2: %08b\n", c->dipsw1, c->dipsw2);
-			printf("  CONTROL: %08b COMMAND: %08b STATUS: %08b\n",
+			MII_DEBUG_PRINTF("  DIPSW1: %08b DIPSW2: %08b\n", c->dipsw1, c->dipsw2);
+			MII_DEBUG_PRINTF("  CONTROL: %08b COMMAND: %08b STATUS: %08b\n",
 					c->control, c->command, c->status);
 		}
 		return;

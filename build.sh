@@ -4,5 +4,5 @@
 rm -rf ./build
 mkdir build
 cd build
-cmake -DPICO_PLATFORM=rp2350 ..
+cmake -DPICO_PLATFORM=rp2350 -DUSB_HID_ENABLED=1 ..
 make -j4

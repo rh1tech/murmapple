@@ -13,6 +13,7 @@
 
 #include "mii.h"
 #include "mii_bank.h"
+#include "debug_log.h"
 
 /*
  * This is a mini driver for the Titan Accelerator IIe, not very common,
@@ -33,7 +34,7 @@ _mii_titan_access(
 	bool res = false;
 	mii_bank_t *sw = &mii->bank[MII_BANK_SW];
 	if (write) {
-		printf("titan: write %02x to %04x\n", *byte, addr);
+		MII_DEBUG_PRINTF("titan: write %02x to %04x\n", *byte, addr);
 		switch (*byte) {
 			case 5:
 				mii->speed = MII_SPEED_TITAN;
@@ -48,7 +49,7 @@ _mii_titan_access(
 				mii->speed = MII_SPEED_NTSC;
 				break;
 			default:
-				printf("titan: unknown speed %02x\n", *byte);
+				MII_DEBUG_PRINTF("titan: unknown speed %02x\n", *byte);
 				break;
 		}
 	}

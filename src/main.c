@@ -29,6 +29,7 @@
 #include "mii_disk2.h"
 #include "disk_loader.h"
 #include "disk_ui.h"
+#include "debug_log.h"
 
 #ifdef MII_RP2350
 #include "mii_disk2_asm.h"
@@ -72,6 +73,13 @@ extern void psram_init(uint cs_pin);
 extern void psram_set_sram_mode(int enable);
 
 // PS/2 keyboard interface
+#ifndef ENABLE_PS2_KEYBOARD
+#define ENABLE_PS2_KEYBOARD 1
+#endif
+
+#ifndef ENABLE_DEBUG_LOGS
+#define ENABLE_DEBUG_LOGS 0
+#endif
 extern void ps2kbd_init(void);
 extern void ps2kbd_tick(void);
 extern int ps2kbd_get_key(int* pressed, unsigned char* key);
@@ -165,6 +173,7 @@ static void process_keyboard(void) {
     unsigned char key;
     
     // Process PS/2 keyboard events
+#if ENABLE_PS2_KEYBOARD
     while (ps2kbd_get_key(&pressed, &key)) {
         if (pressed) {
             // Check for F11 - disk selector toggle
@@ -193,6 +202,7 @@ static void process_keyboard(void) {
             }
         }
     }
+#endif
     
 #ifdef USB_HID_ENABLED
     // Process USB HID keyboard events (same logic as PS/2)
@@ -267,14 +277,14 @@ static volatile bool g_emulator_ready = false;
 
 // Core 1 - Video rendering loop
 static void core1_main(void) {
-    printf("Core 1: Waiting for emulator ready...\n");
+    MII_DEBUG_PRINTF("Core 1: Waiting for emulator ready...\n");
     
     // Wait for Core 0 to finish initialization
     while (!g_emulator_ready) {
         sleep_ms(10);
     }
     
-    printf("Core 1: Starting video rendering\n");
+    MII_DEBUG_PRINTF("Core 1: Starting video rendering\n");
     
     bool was_ui_visible = false;
     uint32_t last_frame = hdmi_get_frame_count();
@@ -347,7 +357,7 @@ static void load_rom(mii_t *mii, const uint8_t *rom, size_t len, uint16_t addr) 
     main_rom_struct.len = len;
     mii_rom_register(&main_rom_struct);
     
-    printf("Loaded %zu bytes ROM at $%04X\n", len, addr);
+    MII_DEBUG_PRINTF("Loaded %zu bytes ROM at $%04X\n", len, addr);
 }
 
 // Load character ROM
@@ -358,7 +368,7 @@ static void load_char_rom(mii_t *mii, const uint8_t *rom, size_t len) {
     mii_rom_t *video_rom = mii_rom_get("iiee_video");
     if (video_rom && video_rom->rom) {
         mii->video.rom = video_rom;
-        printf("Loaded %zu bytes character ROM (auto-registered)\n", len);
+        MII_DEBUG_PRINTF("Loaded %zu bytes character ROM (auto-registered)\n", len);
         return;
     }
 
@@ -367,12 +377,12 @@ static void load_char_rom(mii_t *mii, const uint8_t *rom, size_t len) {
         video_rom->rom = rom;
         video_rom->len = len;
         mii->video.rom = video_rom;
-        printf("Loaded %zu bytes character ROM (patched descriptor)\n", len);
+        MII_DEBUG_PRINTF("Loaded %zu bytes character ROM (patched descriptor)\n", len);
     } else {
         char_rom_fallback.rom = rom;
         char_rom_fallback.len = len;
         mii->video.rom = &char_rom_fallback;
-        printf("Loaded %zu bytes character ROM (fallback)\n", len);
+        MII_DEBUG_PRINTF("Loaded %zu bytes character ROM (fallback)\n", len);
     }
 }
 
@@ -393,46 +403,40 @@ int main() {
     // Initialize stdio (USB serial)
     stdio_init_all();
     
-    // Wait for USB serial connection (4 seconds as requested)
-    printf("\n\n");
-    for (int i = 4; i > 0; i--) {
-        printf("MurmApple - Starting in %d...\n", i);
-        sleep_ms(1000);
-    }
-    
-    printf("=================================\n");
-    printf("  MurmApple - Apple IIe on RP2350\n");
-    printf("=================================\n");
-    printf("System Clock: %lu MHz\n", clock_get_hz(clk_sys) / 1000000);
+    MII_DEBUG_PRINTF("\n\n");
+    MII_DEBUG_PRINTF("=================================\n");
+    MII_DEBUG_PRINTF("  MurmApple - Apple IIe on RP2350\n");
+    MII_DEBUG_PRINTF("=================================\n");
+    MII_DEBUG_PRINTF("System Clock: %lu MHz\n", clock_get_hz(clk_sys) / 1000000);
     
     // Initialize PSRAM
-    printf("Initializing PSRAM...\n");
+    MII_DEBUG_PRINTF("Initializing PSRAM...\n");
     uint psram_pin = get_psram_pin();
     psram_init(psram_pin);
     psram_set_sram_mode(0);  // Use PSRAM mode (not SRAM simulation)
-    printf("PSRAM initialized on CS pin %d\n", psram_pin);
+    MII_DEBUG_PRINTF("PSRAM initialized on CS pin %d\n", psram_pin);
     
     // Test PSRAM read/write
     volatile uint8_t *psram = (volatile uint8_t *)0x11000000;
     psram[0] = 0xAB;
     psram[1] = 0xCD;
     psram[2] = 0xEF;
-    printf("PSRAM test: wrote AB CD EF, read %02X %02X %02X\n", 
+    MII_DEBUG_PRINTF("PSRAM test: wrote AB CD EF, read %02X %02X %02X\n", 
            psram[0], psram[1], psram[2]);
     if (psram[0] != 0xAB || psram[1] != 0xCD || psram[2] != 0xEF) {
-        printf("ERROR: PSRAM read/write failed!\n");
+        MII_DEBUG_PRINTF("ERROR: PSRAM read/write failed!\n");
     }
     
     // Allocate HDMI framebuffer in SRAM (not PSRAM!) - DMA needs fast access
-    printf("Allocating HDMI framebuffer in SRAM...\n");
+    MII_DEBUG_PRINTF("Allocating HDMI framebuffer in SRAM...\n");
     // Double-buffer to prevent tearing: one buffer scanned out by HDMI DMA, one rendered by core1.
     g_hdmi_front_buffer = (uint8_t *)malloc(HDMI_WIDTH * HDMI_HEIGHT);
     g_hdmi_back_buffer = (uint8_t *)malloc(HDMI_WIDTH * HDMI_HEIGHT);
     if (!g_hdmi_front_buffer || !g_hdmi_back_buffer) {
-        printf("ERROR: Failed to allocate HDMI framebuffer\n");
+        MII_DEBUG_PRINTF("ERROR: Failed to allocate HDMI framebuffer\n");
         while (1) tight_loop_contents();
     }
-    printf("HDMI buffers allocated: front=%p back=%p (%d bytes each)\n",
+    MII_DEBUG_PRINTF("HDMI buffers allocated: front=%p back=%p (%d bytes each)\n",
            g_hdmi_front_buffer, g_hdmi_back_buffer, HDMI_WIDTH * HDMI_HEIGHT);
     memset(g_hdmi_front_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
     memset(g_hdmi_back_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
@@ -443,9 +447,9 @@ int main() {
     graphics_set_res(HDMI_WIDTH, HDMI_HEIGHT);
     
     // Initialize HDMI graphics (starts DMA/IRQs)
-    printf("Initializing HDMI...\n");
+    MII_DEBUG_PRINTF("Initializing HDMI...\n");
     graphics_init(g_out_HDMI);
-    printf("HDMI buffer at %p (%lux%lu)\n", 
+    MII_DEBUG_PRINTF("HDMI buffer at %p (%lux%lu)\n", 
             graphics_get_buffer(), graphics_get_width(), graphics_get_height());
     
     // Initialize palette
@@ -453,45 +457,50 @@ int main() {
     graphics_restore_sync_colors();  // Restore HDMI sync colors after palette init
     
     // Verify palette entry 15 was set
-    printf("Palette initialized, verifying...\n");
+    MII_DEBUG_PRINTF("Palette initialized, verifying...\n");
     extern uint32_t conv_color[];
     uint64_t *conv_color64 = (uint64_t *)conv_color;
-    printf("conv_color[15] = 0x%016llx 0x%016llx\n", conv_color64[30], conv_color64[31]);
+    MII_DEBUG_PRINTF("conv_color[15] = 0x%016llx 0x%016llx\n", conv_color64[30], conv_color64[31]);
     
     // Clear framebuffer to black
     memset(g_hdmi_front_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
     memset(g_hdmi_back_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
     
     // Initialize PS/2 keyboard
-    printf("Initializing PS/2 keyboard...\n");
+    MII_DEBUG_PRINTF("Initializing PS/2 keyboard...\n");
+#if ENABLE_PS2_KEYBOARD
     ps2kbd_init();
+    MII_DEBUG_PRINTF("PS/2 keyboard init complete\n");
+#else
+    MII_DEBUG_PRINTF("PS/2 keyboard disabled\n");
+#endif
     
     // Initialize NES/SNES gamepad
-    printf("Initializing NES gamepad...\n");
+    MII_DEBUG_PRINTF("Initializing NES gamepad...\n");
     if (nespad_begin(clock_get_hz(clk_sys) / 1000, NESPAD_GPIO_CLK, NESPAD_GPIO_DATA, NESPAD_GPIO_LATCH)) {
-        printf("NES gamepad initialized (CLK=%d, DATA=%d, LATCH=%d)\n",
+        MII_DEBUG_PRINTF("NES gamepad initialized (CLK=%d, DATA=%d, LATCH=%d)\n",
                NESPAD_GPIO_CLK, NESPAD_GPIO_DATA, NESPAD_GPIO_LATCH);
     } else {
-        printf("NES gamepad init failed\n");
+        MII_DEBUG_PRINTF("NES gamepad init failed\n");
     }
     
     // Initialize USB HID keyboard/gamepad (if enabled)
 #ifdef USB_HID_ENABLED
-    printf("Initializing USB HID Host...\n");
+    MII_DEBUG_PRINTF("Initializing USB HID Host...\n");
     usbhid_wrapper_init();
-    printf("USB HID Host initialized\n");
+    MII_DEBUG_PRINTF("USB HID Host initialized\n");
 #endif
     
     // Initialize SD card and scan for disk images
-    printf("Initializing SD card and disk images...\n");
+    MII_DEBUG_PRINTF("Initializing SD card and disk images...\n");
     if (disk_loader_init() == 0) {
-        printf("SD card ready, found %d disk images\n", g_disk_count);
+        MII_DEBUG_PRINTF("SD card ready, found %d disk images\n", g_disk_count);
     } else {
-        printf("SD card not available (will run without disks)\n");
+        MII_DEBUG_PRINTF("SD card not available (will run without disks)\n");
     }
     
     // Initialize the Apple IIe emulator
-    printf("Initializing Apple IIe emulator...\n");
+    MII_DEBUG_PRINTF("Initializing Apple IIe emulator...\n");
     mii_init(&g_mii);
 
     // RP2350 mii_init() skips mii_video_init(); seed video-related SW registers.
@@ -500,12 +509,12 @@ int main() {
     g_mii.video.an3_mode = 1;
     
     // Install Disk II controller in slot 6
-    printf("Installing Disk II controller in slot 6...\n");
+    MII_DEBUG_PRINTF("Installing Disk II controller in slot 6...\n");
     int slot_res = mii_slot_drv_register(&g_mii, 6, "disk2");
     if (slot_res < 0) {
-        printf("ERROR: Failed to install Disk II controller: %d\n", slot_res);
+        MII_DEBUG_PRINTF("ERROR: Failed to install Disk II controller: %d\n", slot_res);
     } else {
-        printf("Disk II controller installed in slot 6\n");
+        MII_DEBUG_PRINTF("Disk II controller installed in slot 6\n");
         
 #ifdef MII_RP2350
         // Print struct offsets for assembly verification
@@ -514,20 +523,20 @@ int main() {
         
         // Debug: dump first few bytes of slot 6 ROM
         mii_bank_t *card_rom = &g_mii.bank[MII_BANK_CARD_ROM];
-        printf("Card ROM bank: base=$%04X, mem=%p\n", card_rom->base, card_rom->mem);
-        printf("Slot 6 ROM at $C600: ");
+        MII_DEBUG_PRINTF("Card ROM bank: base=$%04X, mem=%p\n", card_rom->base, card_rom->mem);
+        MII_DEBUG_PRINTF("Slot 6 ROM at $C600: ");
         for (int i = 0; i < 16; i++) {
-            printf("%02X ", mii_bank_peek(card_rom, 0xC600 + i));
+            MII_DEBUG_PRINTF("%02X ", mii_bank_peek(card_rom, 0xC600 + i));
         }
-        printf("\n");
+        MII_DEBUG_PRINTF("\n");
         
         // Debug: Check empty slot 2 area (should be all zeros)
-        printf("Slot 2 ROM at $C200: ");
+        MII_DEBUG_PRINTF("Slot 2 ROM at $C200: ");
         for (int i = 0; i < 16; i++) {
-            printf("%02X ", mii_bank_peek(card_rom, 0xC200 + i));
+            MII_DEBUG_PRINTF("%02X ", mii_bank_peek(card_rom, 0xC200 + i));
         }
-        printf("\n");
-        printf("Slot 2 signature bytes: $C205=%02X, $C207=%02X\n",
+        MII_DEBUG_PRINTF("\n");
+        MII_DEBUG_PRINTF("Slot 2 signature bytes: $C205=%02X, $C207=%02X\n",
                mii_bank_peek(card_rom, 0xC205), mii_bank_peek(card_rom, 0xC207));
     }
     
@@ -535,58 +544,58 @@ int main() {
     disk_ui_init_with_emulator(&g_mii, 6);
     
     // Load Apple IIe ROM (16K at $C000-$FFFF)
-    printf("Loading Apple IIe ROM...\n");
+    MII_DEBUG_PRINTF("Loading Apple IIe ROM...\n");
     load_rom(&g_mii, mii_rom_iiee, 16384, 0xC000);
     
     // Debug: Check reset vector in ROM
     mii_bank_t *rom_bank = &g_mii.bank[MII_BANK_ROM];
     uint8_t rst_lo = mii_bank_peek(rom_bank, 0xFFFC);
     uint8_t rst_hi = mii_bank_peek(rom_bank, 0xFFFD);
-    printf("ROM Reset vector at $FFFC-$FFFD: $%02X%02X\n", rst_hi, rst_lo);
-    printf("ROM bank: base=$%04X, mem=%p\n", (unsigned)rom_bank->base, rom_bank->mem);
+    MII_DEBUG_PRINTF("ROM Reset vector at $FFFC-$FFFD: $%02X%02X\n", rst_hi, rst_lo);
+    MII_DEBUG_PRINTF("ROM bank: base=$%04X, mem=%p\n", (unsigned)rom_bank->base, rom_bank->mem);
     
     // Also check raw ROM data
-    printf("Raw ROM bytes at offset 0x3FFC-0x3FFD: %02X %02X\n", 
+    MII_DEBUG_PRINTF("Raw ROM bytes at offset 0x3FFC-0x3FFD: %02X %02X\n", 
            mii_rom_iiee[0x3FFC], mii_rom_iiee[0x3FFD]);
     
     // Debug: Check slot 3 ROM area ($C3FC)
-    printf("Slot 3 area: ROM @$C300-$C3FF:\n");
-    printf("  Raw ROM offset 0x0300: %02X %02X %02X %02X\n",
+        MII_DEBUG_PRINTF("Slot 3 area: ROM @$C300-$C3FF:\n");
+        MII_DEBUG_PRINTF("  Raw ROM offset 0x0300: %02X %02X %02X %02X\n",
            mii_rom_iiee[0x0300], mii_rom_iiee[0x0301], mii_rom_iiee[0x0302], mii_rom_iiee[0x0303]);
-    printf("  Raw ROM offset 0x03FC: %02X %02X %02X %02X\n",
+        MII_DEBUG_PRINTF("  Raw ROM offset 0x03FC: %02X %02X %02X %02X\n",
            mii_rom_iiee[0x03FC], mii_rom_iiee[0x03FD], mii_rom_iiee[0x03FE], mii_rom_iiee[0x03FF]);
-    printf("  Bank peek $C3FC: %02X\n", mii_bank_peek(rom_bank, 0xC3FC));
-    printf("  Direct mem[0x03FC]: %02X\n", rom_bank->mem[0x03FC]);
+        MII_DEBUG_PRINTF("  Bank peek $C3FC: %02X\n", mii_bank_peek(rom_bank, 0xC3FC));
+        MII_DEBUG_PRINTF("  Direct mem[0x03FC]: %02X\n", rom_bank->mem[0x03FC]);
     
     // Load character ROM
-    printf("Loading character ROM...\n");
+    MII_DEBUG_PRINTF("Loading character ROM...\n");
     load_char_rom(&g_mii, mii_rom_iiee_video, 4096);
     if (g_mii.video.rom && g_mii.video.rom->rom) {
         const uint8_t *p = (const uint8_t *)g_mii.video.rom->rom;
-        printf("Char ROM: desc=%p bytes=%p len=%u first=%02X %02X %02X %02X\n",
+        MII_DEBUG_PRINTF("Char ROM: desc=%p bytes=%p len=%u first=%02X %02X %02X %02X\n",
                (void *)g_mii.video.rom, (void *)p, (unsigned)g_mii.video.rom->len,
                p[0], p[1], p[2], p[3]);
     } else {
-        printf("ERROR: Char ROM missing (desc=%p)\n", (void *)g_mii.video.rom);
+        MII_DEBUG_PRINTF("ERROR: Char ROM missing (desc=%p)\n", (void *)g_mii.video.rom);
     }
     
     // Reset the emulator - this sets reset flag and state to RUNNING
-    printf("Resetting emulator...\n");
+    MII_DEBUG_PRINTF("Resetting emulator...\n");
     mii_reset(&g_mii, true);
-    printf("Reset complete, state=%d\n", g_mii.state);
+    MII_DEBUG_PRINTF("Reset complete, state=%d\n", g_mii.state);
     
     // Start HDMI output
-    printf("Starting HDMI output...\n");
+    MII_DEBUG_PRINTF("Starting HDMI output...\n");
     startVIDEO(0);
-    printf("HDMI started\n");
+    MII_DEBUG_PRINTF("HDMI started\n");
     
     // Let ROM boot naturally
-    printf("Running ROM boot sequence (1M cycles)...\n");
+    MII_DEBUG_PRINTF("Running ROM boot sequence (1M cycles)...\n");
     mii_run_cycles(&g_mii, 1000000);
-    printf("ROM boot complete, PC=$%04X\n", g_mii.cpu.PC);
+    MII_DEBUG_PRINTF("ROM boot complete, PC=$%04X\n", g_mii.cpu.PC);
     
     // Debug: Check state after boot
-    printf("Post-boot: Text page $0400: %02X %02X %02X %02X\n",
+    MII_DEBUG_PRINTF("Post-boot: Text page $0400: %02X %02X %02X %02X\n",
            mii_read_one(&g_mii, 0x400), mii_read_one(&g_mii, 0x401),
            mii_read_one(&g_mii, 0x402), mii_read_one(&g_mii, 0x403));
 
@@ -594,24 +603,24 @@ int main() {
     g_emulator_ready = true;
     
     // Launch video rendering on core 1
-    printf("Starting video rendering on core 1...\n");
+    MII_DEBUG_PRINTF("Starting video rendering on core 1...\n");
     multicore_launch_core1(core1_main);
-    printf("Core 1 launched\n");
+    MII_DEBUG_PRINTF("Core 1 launched\n");
     
 #ifdef FEATURE_AUDIO
     // Initialize I2S audio
-    printf("Initializing I2S audio...\n");
+    MII_DEBUG_PRINTF("Initializing I2S audio...\n");
     if (mii_audio_i2s_init()) {
-        printf("I2S audio initialized (DATA=%d, CLK=%d/%d, %d Hz)\n",
+        MII_DEBUG_PRINTF("I2S audio initialized (DATA=%d, CLK=%d/%d, %d Hz)\n",
                I2S_DATA_PIN, I2S_CLOCK_PIN_BASE, I2S_CLOCK_PIN_BASE + 1, MII_I2S_SAMPLE_RATE);
     } else {
-        printf("I2S audio initialization failed\n");
+        MII_DEBUG_PRINTF("I2S audio initialization failed\n");
     }
 #endif
 
-    printf("Starting emulation on core 0...\n");
-    printf("Initial PC: $%04X\n", g_mii.cpu.PC);
-    printf("=================================\n\n");
+    MII_DEBUG_PRINTF("Starting emulation on core 0...\n");
+    MII_DEBUG_PRINTF("Initial PC: $%04X\n", g_mii.cpu.PC);
+    MII_DEBUG_PRINTF("=================================\n\n");
     
     // Main emulation loop on core 0
     // Apple II runs at ~1.023 MHz = 1,023,000 cycles/second.
@@ -642,23 +651,28 @@ int main() {
         
         // Poll keyboard at start of frame
         uint32_t input_start = time_us_32();
+    #if ENABLE_PS2_KEYBOARD
         ps2kbd_tick();
+    #endif
         
 #ifdef USB_HID_ENABLED
         // Poll USB HID devices
         usbhid_wrapper_poll();
 #endif
         
-        // Check for Ctrl+Alt+Delete reset combo (PS/2 keyboard)
+        // Check for Ctrl+Alt+Delete reset combo
         static bool reset_combo_active = false;
-        if (ps2kbd_is_reset_combo()
-#ifdef USB_HID_ENABLED
-            || usbhid_wrapper_is_reset_combo()
-#endif
-        ) {
+        bool reset_combo = false;
+    #if ENABLE_PS2_KEYBOARD
+        reset_combo |= ps2kbd_is_reset_combo();
+    #endif
+    #ifdef USB_HID_ENABLED
+        reset_combo |= usbhid_wrapper_is_reset_combo();
+    #endif
+        if (reset_combo) {
             if (!reset_combo_active) {
                 reset_combo_active = true;
-                printf("Reset combo detected (Ctrl+Alt+Delete)\n");
+                MII_DEBUG_PRINTF("Reset combo detected (Ctrl+Alt+Delete)\n");
                 mii_reset(&g_mii, true);
             }
         } else {
@@ -688,7 +702,7 @@ int main() {
             if ((combined_gamepad_state & (DPAD_START | DPAD_A | DPAD_B)) == (DPAD_START | DPAD_A | DPAD_B)) {
                 if (!gamepad_reset_combo_active) {
                     gamepad_reset_combo_active = true;
-                    printf("Reset combo detected (Start+A+B)\n");
+                    MII_DEBUG_PRINTF("Reset combo detected (Start+A+B)\n");
                     mii_reset(&g_mii, true);
                 }
                 // Skip all gamepad processing while reset combo is held
@@ -773,7 +787,10 @@ int main() {
             // NES A/B or Left Alt -> Open Apple (Button 0, $C061)
             // NES A/B or Right Alt -> Closed Apple (Button 1, $C062)
             // NES Start -> Button 2 ($C063)
-            uint8_t mods = ps2kbd_get_modifiers();
+            uint8_t mods = 0;
+#if ENABLE_PS2_KEYBOARD
+            mods |= ps2kbd_get_modifiers();
+#endif
 #ifdef USB_HID_ENABLED
             mods |= usbhid_wrapper_get_modifiers();
 #endif
@@ -829,7 +846,7 @@ int main() {
         if (disk_ui_was_visible && !disk_ui_now) {
             // UI just closed - debug first 60 frames (1 second)
             debug_frames = 60;
-            printf("=== DISK UI CLOSED - MONITORING ===\n");
+            MII_DEBUG_PRINTF("=== DISK UI CLOSED - MONITORING ===\n");
         }
         disk_ui_was_visible = disk_ui_now;
         
@@ -852,7 +869,7 @@ int main() {
                 uint8_t btn1 = mii_bank_peek(sw, 0xc062);
                 uint8_t key = mii_bank_peek(sw, SWKBD);
                 if (btn0 || btn1 || (key & 0x80)) {
-                    printf("F%d: BTN0=%02X BTN1=%02X KEY=%02X\n", 
+                    MII_DEBUG_PRINTF("F%d: BTN0=%02X BTN1=%02X KEY=%02X\n", 
                            60 - debug_frames, btn0, btn1, key);
                 }
                 debug_frames--;
@@ -910,42 +927,44 @@ int main() {
             last_mode_key = mode_key;
         }
         
-        // Print detailed performance metrics every 300 frames (5 seconds)
-        if ((frame_count % 300) == 0) {
-            uint32_t elapsed_us = time_us_32() - metrics_start_us;
-            uint32_t avg_frame_us = total_emu_time / 300;
-            uint32_t avg_cpu_us = total_cpu_time / 300;
-            uint32_t avg_input_us = total_input_time / 300;
-            uint32_t avg_other_us = avg_frame_us - avg_cpu_us - avg_input_us;
-            
-            // Calculate effective MHz
-            // cycles_run in 5 seconds -> cycles/sec -> MHz
-            uint32_t cycles_per_sec = (uint32_t)((uint64_t)total_cycles_run * 1000000ULL / elapsed_us);
-            uint32_t effective_khz = cycles_per_sec / 1000;
-            
-            // Calculate cycles per microsecond of CPU time (efficiency)
-            uint32_t cycles_per_cpu_us = total_cpu_time > 0 ? total_cycles_run / total_cpu_time : 0;
-            
-            // Target is 1.023 MHz = 1023 kHz
-            uint32_t percent_speed = (effective_khz * 100) / 1023;
-            
-            printf("\n=== PERF Frame %lu (%.1fs) ===\n", 
-                   frame_count, (float)elapsed_us / 1000000.0f);
-            printf("Frame: %lu us (CPU: %lu, Input: %lu, Other: %lu)\n",
-                   avg_frame_us, avg_cpu_us, avg_input_us, avg_other_us);
-            printf("Speed: %lu kHz (%lu%% of 1.023 MHz), %lu cyc/us\n",
-                   effective_khz, percent_speed, cycles_per_cpu_us);
-            printf("PC: $%04X, Total cycles: %llu\n",
-                   g_mii.cpu.PC, g_mii.cpu.total_cycle);
-            printf("=============================\n\n");
-            
-            // Reset counters
-            total_emu_time = 0;
-            total_cpu_time = 0;
-            total_input_time = 0;
-            total_cycles_run = 0;
-            metrics_start_us = time_us_32();
-        }
+         // Print detailed performance metrics every 300 frames (5 seconds)
+    #if ENABLE_DEBUG_LOGS
+         if ((frame_count % 300) == 0) {
+             uint32_t elapsed_us = time_us_32() - metrics_start_us;
+             uint32_t avg_frame_us = total_emu_time / 300;
+             uint32_t avg_cpu_us = total_cpu_time / 300;
+             uint32_t avg_input_us = total_input_time / 300;
+             uint32_t avg_other_us = avg_frame_us - avg_cpu_us - avg_input_us;
+
+             // Calculate effective MHz
+             // cycles_run in 5 seconds -> cycles/sec -> MHz
+             uint32_t cycles_per_sec = (uint32_t)((uint64_t)total_cycles_run * 1000000ULL / elapsed_us);
+             uint32_t effective_khz = cycles_per_sec / 1000;
+
+             // Calculate cycles per microsecond of CPU time (efficiency)
+             uint32_t cycles_per_cpu_us = total_cpu_time > 0 ? total_cycles_run / total_cpu_time : 0;
+
+             // Target is 1.023 MHz = 1023 kHz
+             uint32_t percent_speed = (effective_khz * 100) / 1023;
+
+            MII_DEBUG_PRINTF("\n=== PERF Frame %lu (%.1fs) ===\n",
+                frame_count, (float)elapsed_us / 1000000.0f);
+            MII_DEBUG_PRINTF("Frame: %lu us (CPU: %lu, Input: %lu, Other: %lu)\n",
+                avg_frame_us, avg_cpu_us, avg_input_us, avg_other_us);
+            MII_DEBUG_PRINTF("Speed: %lu kHz (%lu%% of 1.023 MHz), %lu cyc/us\n",
+                effective_khz, percent_speed, cycles_per_cpu_us);
+            MII_DEBUG_PRINTF("PC: $%04X, Total cycles: %llu\n",
+                g_mii.cpu.PC, g_mii.cpu.total_cycle);
+            MII_DEBUG_PRINTF("=============================\n\n");
+
+             // Reset counters
+             total_emu_time = 0;
+             total_cpu_time = 0;
+             total_input_time = 0;
+             total_cycles_run = 0;
+             metrics_start_us = time_us_32();
+         }
+    #endif
     }
     
     return 0;

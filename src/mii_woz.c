@@ -34,6 +34,7 @@ static const char *pico_basename(const char *path) {
 
 #include "mii_floppy.h"
 #include "mii_woz.h"
+#include "debug_log.h"
 
 
 int
@@ -46,7 +47,7 @@ mii_floppy_woz_write_track(
 
 	int version = !strncmp((char*)header, "WOZ", 3);
 	if (!version) {
-		printf("%s: not a WOZ file %4.4s\n", __func__, (char*)&header->magic_le);
+		MII_DEBUG_PRINTF("%s: not a WOZ file %4.4s\n", __func__, (char*)&header->magic_le);
 		return 0;
 	}
 	version += !strncmp((char*)header, "WOZ2", 4);
@@ -111,12 +112,12 @@ mii_floppy_woz_load(
 	mii_dd_file_t *file )
 {
 	const char *filename = basename(file->pathname);
-	printf("%s: loading WOZ %s\n", __func__, filename);
+	MII_DEBUG_PRINTF("%s: loading WOZ %s\n", __func__, filename);
 	mii_woz_header_t *header = (mii_woz_header_t *)file->map;
 
 	int version = !strncmp((char*)header, "WOZ", 3);
 	if (!version) {
-		printf("%s: not a WOZ file %4.4s\n", __func__, (char*)&header->magic_le);
+		MII_DEBUG_PRINTF("%s: not a WOZ file %4.4s\n", __func__, (char*)&header->magic_le);
 		return 0;
 	}
 	version += !strncmp((char*)header, "WOZ2", 4);
@@ -131,13 +132,13 @@ mii_floppy_woz_load(
 					le32toh(tmap->chunk.size_le) + sizeof(mii_woz_chunk_t));
 		used_tracks = mii_floppy_woz_load_tmap(f, tmap);
 #if 1
-		printf("WOZ: version %d, type %d\n",
+		MII_DEBUG_PRINTF("WOZ: version %d, type %d\n",
 				info->version, info->disk_type );
-		printf("WOZ: creator '%s'\n", info->creator);
-		printf("WOZ: track map %4.4s size %d\n",
+		MII_DEBUG_PRINTF("WOZ: creator '%s'\n", info->creator);
+		MII_DEBUG_PRINTF("WOZ: track map %4.4s size %d\n",
 				(char*)&tmap->chunk.id_le,
 				le32toh(tmap->chunk.size_le));
-		printf("WOZ: Track chunk %4.4s size %d\n",
+		MII_DEBUG_PRINTF("WOZ: Track chunk %4.4s size %d\n",
 				(char*)&trks->chunk.id_le, le32toh(trks->chunk.size_le));
 #endif
 		int max_track = le32toh(trks->chunk.size_le) / sizeof(trks->track[0]);
@@ -159,15 +160,15 @@ mii_floppy_woz_load(
 					le32toh(tmap->chunk.size_le) + sizeof(mii_woz_chunk_t));
 		used_tracks = mii_floppy_woz_load_tmap(f, tmap);
 #if 1
-		printf("WOZ: version %d, type %d, sides %d, largest track %d, optimal bit timing: %d\n",
+		MII_DEBUG_PRINTF("WOZ: version %d, type %d, sides %d, largest track %d, optimal bit timing: %d\n",
 				info->version, info->disk_type, info->sides,
 				le16toh(info->largest_track_le) * 512,
 				info->optimal_bit_timing);
-		printf("WOZ: creator '%s'\n", info->creator);
-		printf("WOZ: track map %4.4s size %d\n",
+		MII_DEBUG_PRINTF("WOZ: creator '%s'\n", info->creator);
+		MII_DEBUG_PRINTF("WOZ: track map %4.4s size %d\n",
 				(char*)&tmap->chunk.id_le,
 				le32toh(tmap->chunk.size_le));
-		printf("WOZ: Track chunk %4.4s size %d\n",
+		MII_DEBUG_PRINTF("WOZ: Track chunk %4.4s size %d\n",
 				(char*)&trks->chunk.id_le, le32toh(trks->chunk.size_le));
 #endif
 		/* TODO: this doesn't work yet... */

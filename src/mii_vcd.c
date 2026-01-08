@@ -13,6 +13,7 @@
 #include <inttypes.h>
 #include "mii.h"
 #include "mii_vcd.h"
+#include "debug_log.h"
 
 DEFINE_FIFO(mii_vcd_log_t, mii_vcd_fifo);
 
@@ -158,7 +159,7 @@ _mii_vcd_notify(
 	mii_vcd_t * vcd = (mii_vcd_t *)param;
 
 	if (!vcd->output) {
-		printf("%s: no output\n",
+		MII_DEBUG_PRINTF("%s: no output\n",
 				__func__);
 		return;
 	}
@@ -188,7 +189,7 @@ mii_vcd_add_signal(
 		const char * name )
 {
 	if (vcd->signal_count == MII_VCD_MAX_SIGNALS) {
-		printf(" %s: unable add signal '%s'\n", __func__, name);
+		MII_DEBUG_PRINTF(" %s: unable add signal '%s'\n", __func__, name);
 		return -1;
 	}
 	int index = vcd->signal_count++;
@@ -335,7 +336,7 @@ mii_init_signal(
 		if (names && names[i])
 			sig[i].name = strdup(names[i]);
 		else {
-			printf("WARNING %s() with NULL name for sig %d.\n",
+			MII_DEBUG_PRINTF("WARNING %s() with NULL name for sig %d.\n",
 					__func__, sig[i].sig);
 		}
 	}

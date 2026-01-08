@@ -21,6 +21,7 @@
 #include "mii_nib.h"
 #include "mii_woz.h"
 #include "mii_video.h"
+#include "debug_log.h"
 
 // Global state
 disk_entry_t g_disk_list[MAX_DISK_IMAGES];
@@ -103,13 +104,13 @@ static int disk_load_floppy_dsk_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *
 
             FRESULT fr = f_lseek(fp, off);
             if (fr != FR_OK) {
-                printf("%s: f_lseek(%lu) failed: %d\n", __func__, (unsigned long)off, fr);
+                MII_DEBUG_PRINTF("%s: f_lseek(%lu) failed: %d\n", __func__, (unsigned long)off, fr);
                 return -1;
             }
             UINT br = 0;
             fr = f_read(fp, sector_buf, sizeof(sector_buf), &br);
             if (fr != FR_OK || br != sizeof(sector_buf)) {
-                printf("%s: f_read sector failed: fr=%d br=%u\n", __func__, fr, br);
+                MII_DEBUG_PRINTF("%s: f_read sector failed: fr=%d br=%u\n", __func__, fr, br);
                 return -1;
             }
 
@@ -124,27 +125,27 @@ static int disk_load_floppy_dsk_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *
 static int disk_load_floppy_nib_from_fatfs(mii_floppy_t *floppy, FIL *fp) {
     uint8_t *track_buf = (uint8_t *)malloc(6656);
     if (!track_buf) {
-        printf("%s: out of memory\n", __func__);
+        MII_DEBUG_PRINTF("%s: out of memory\n", __func__);
         return -1;
     }
     for (int track = 0; track < 35; track++) {
         const uint32_t off = (uint32_t)(track * 6656);
         FRESULT fr = f_lseek(fp, off);
         if (fr != FR_OK) {
-            printf("%s: f_lseek(%lu) failed: %d\n", __func__, (unsigned long)off, fr);
+            MII_DEBUG_PRINTF("%s: f_lseek(%lu) failed: %d\n", __func__, (unsigned long)off, fr);
             free(track_buf);
             return -1;
         }
         UINT br = 0;
         fr = f_read(fp, track_buf, 6656, &br);
         if (fr != FR_OK || br != 6656) {
-            printf("%s: f_read track failed: fr=%d br=%u\n", __func__, fr, br);
+            MII_DEBUG_PRINTF("%s: f_read track failed: fr=%d br=%u\n", __func__, fr, br);
             free(track_buf);
             return -1;
         }
         mii_floppy_nib_render_track(track_buf, &floppy->tracks[track], floppy->track_data[track]);
         if (floppy->tracks[track].bit_count < 100) {
-            printf("%s: invalid NIB track %d\n", __func__, track);
+            MII_DEBUG_PRINTF("%s: invalid NIB track %d\n", __func__, track);
             free(track_buf);
             return -1;
         }
@@ -172,7 +173,7 @@ static int disk_load_floppy_woz_from_fatfs(mii_floppy_t *floppy, FIL *fp) {
 	bool is_woz2 = (memcmp(magic, "WOZ2", 4) == 0);
 	bool is_woz1 = (memcmp(magic, "WOZ", 3) == 0 && !is_woz2);
 	if (!is_woz2 && !is_woz1) {
-		printf("%s: not a WOZ file\n", __func__);
+		MII_DEBUG_PRINTF("%s: not a WOZ file\n", __func__);
 		return -1;
 	}
 
@@ -206,14 +207,14 @@ static int disk_load_floppy_woz_from_fatfs(mii_floppy_t *floppy, FIL *fp) {
 	}
 
 	if (!tmap_payload_off || !trks_payload_off) {
-		printf("%s: missing required chunks (TMAP/TRKS)\n", __func__);
+		MII_DEBUG_PRINTF("%s: missing required chunks (TMAP/TRKS)\n", __func__);
 		return -1;
 	}
 
 	// Read TMAP
 	uint8_t tmap_track_id[160];
 	if (tmap_payload_size < sizeof(tmap_track_id)) {
-        printf("%s: TMAP too small (%lu)\n", __func__, (unsigned long)tmap_payload_size);
+        MII_DEBUG_PRINTF("%s: TMAP too small (%lu)\n", __func__, (unsigned long)tmap_payload_size);
 		return -1;
 	}
 	fr = f_lseek(fp, tmap_payload_off);

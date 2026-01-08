@@ -13,6 +13,7 @@
 
 #include "mii.h"
 #include "mii_bank.h"
+#include "debug_log.h"
 
 
 void
@@ -124,7 +125,7 @@ mii_bank_install_access_cb(
 	if (!end)
 		end = page;
 	if ((page << 8) < bank->base || (end << 8) > (bank->base + bank->size * 256)) {
-		printf("%s %s INVALID install access cb %p param %p page %02x-%02x\n",
+		MII_DEBUG_PRINTF("%s %s INVALID install access cb %p param %p page %02x-%02x\n",
 					__func__, bank->name, cb, param, page, end);
 		return;
 	}
@@ -133,11 +134,11 @@ mii_bank_install_access_cb(
 	if (!bank->access) {
 		bank->access = calloc(1, bank->size * sizeof(bank->access[0]));
 	}
-	printf("%s %s install access cb page %02x:%02x\n",
+	MII_DEBUG_PRINTF("%s %s install access cb page %02x:%02x\n",
 			__func__, bank->name, page, end);
 	for (int i = page; i <= end; i++) {
 		if (bank->access[i].cb)
-			printf("%s %s page %02x already has a callback\n",
+			MII_DEBUG_PRINTF("%s %s page %02x already has a callback\n",
 					__func__, bank->name, i);
 		bank->access[i].cb = cb;
 		bank->access[i].param = param;

@@ -32,7 +32,13 @@ endif()
 
 # USB HID Host support (keyboard and gamepad via USB)
 # When enabled, USB CDC stdio is disabled!
-option(USB_HID_ENABLED "Enable USB HID Host for keyboard/gamepad" OFF)
+option(USB_HID_ENABLED "Enable USB HID Host for keyboard/gamepad" ON)
+
+# PS/2 keyboard support toggle
+option(PS2_KEYBOARD_ENABLED "Enable PS/2 keyboard input" ON)
+
+# Verbose debug logging toggle
+option(DEBUG_LOGS_ENABLED "Enable verbose debug logging" OFF)
 
 message(STATUS "murmapple - Apple IIe Emulator for RP2350")
 message(STATUS "Board: ${BOARD_VARIANT}, CPU: ${CPU_SPEED} MHz, PSRAM: ${PSRAM_SPEED} MHz, Voltage: ${CPU_VOLTAGE}")
@@ -131,6 +137,18 @@ target_compile_definitions(murmapple PRIVATE
     FEATURE_AUDIO=1
 )
 
+if(PS2_KEYBOARD_ENABLED)
+    target_compile_definitions(murmapple PRIVATE ENABLE_PS2_KEYBOARD=1)
+else()
+    target_compile_definitions(murmapple PRIVATE ENABLE_PS2_KEYBOARD=0)
+endif()
+
+if(DEBUG_LOGS_ENABLED)
+    target_compile_definitions(murmapple PRIVATE ENABLE_DEBUG_LOGS=1)
+else()
+    target_compile_definitions(murmapple PRIVATE ENABLE_DEBUG_LOGS=0)
+endif()
+
 # Optimization for maximum performance on RP2350
 # -O3: Maximum optimization including loop vectorization
 # -ffunction-sections -fdata-sections: Allow linker to remove unused code
@@ -168,7 +186,7 @@ if(USB_HID_ENABLED)
 else()
     pico_enable_stdio_usb(murmapple 1)
 endif()
-pico_enable_stdio_uart(murmapple 0)
+pico_enable_stdio_uart(murmapple 1)
 
 # Create UF2 output
 pico_add_extra_outputs(murmapple)

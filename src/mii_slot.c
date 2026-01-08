@@ -11,6 +11,7 @@
 #include <ctype.h>
 
 #include "mii.h"
+#include "debug_log.h"
 
 mii_slot_drv_t *
 mii_slot_drv_find(
@@ -33,26 +34,26 @@ mii_slot_drv_register(
 		const char *driver_name)
 {
 	if (!mii || !driver_name) {
-		printf("%s invalid args\n", __func__);
+		MII_DEBUG_PRINTF("%s invalid args\n", __func__);
 		return -1;
 	}
 	if (slot_id < 1 || slot_id > 7) {
-		printf("%s invalid slot id %d\n", __func__, slot_id);
+		MII_DEBUG_PRINTF("%s invalid slot id %d\n", __func__, slot_id);
 		return -1;
 	}
 	if (mii->slot[slot_id - 1].drv) {
-		printf("%s slot %d already has a driver (%s)\n",
+		MII_DEBUG_PRINTF("%s slot %d already has a driver (%s)\n",
 				__func__, slot_id, mii->slot[slot_id - 1].drv->name);
 		return -1;
 	}
 	mii_slot_drv_t * drv = mii_slot_drv_find(mii, driver_name);
 	if (!drv) {
-		printf("%s driver %s not found\n", __func__, driver_name);
+		MII_DEBUG_PRINTF("%s driver %s not found\n", __func__, driver_name);
 		return -1;
 	}
 	if (drv->init) {
 		if (drv->init(mii, &mii->slot[slot_id - 1]) != 0) {
-			printf("%s driver %s init failed\n", __func__, driver_name);
+			MII_DEBUG_PRINTF("%s driver %s init failed\n", __func__, driver_name);
 			return -1;
 		}
 	}

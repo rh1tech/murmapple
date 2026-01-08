@@ -17,6 +17,7 @@
 #include "mii_sw.h"
 #include "mii_65c02.h"
 #include "minipt.h"
+#include "debug_log.h"
 
 #if MII_65C02_DIRECT_ACCESS
 static mii_cpu_state_t
@@ -115,13 +116,13 @@ mii_dump_trace_state(
 {
 	mii_cpu_t * cpu = &mii->cpu;
 	mii_cpu_state_t s = mii->cpu_state;
-	printf("PC:%04X A:%02X X:%02X Y:%02X S:%02x #%d %c AD:%04X D:%02x %c ",
+	MII_DEBUG_PRINTF("PC:%04X A:%02X X:%02X Y:%02X S:%02x #%d %c AD:%04X D:%02x %c ",
 		cpu->PC, cpu->A, cpu->X, cpu->Y, cpu->S, cpu->cycle,
 		s.sync ? 'I' : ' ', s.addr, s.data, s.w ? 'W' : 'R');
 	// display the S flags
 	static const char *s_flags = "CZIDBRVN";
 	for (int i = 0; i < 8; i++)
-		printf("%c", MII_GET_P_BIT(cpu, i) ? s_flags[i] : tolower(s_flags[i]));
+		MII_DEBUG_PRINTF("%c", MII_GET_P_BIT(cpu, i) ? s_flags[i] : tolower(s_flags[i]));
 //	if (s.sync)
 	{
 		uint8_t op[16];
@@ -129,16 +130,16 @@ mii_dump_trace_state(
 			mii_mem_access(mii, mii->cpu.PC + i, op + i, false, false);
 		}
 		mii_op_t d = mii_cpu_op[op[0]];
-		printf(" ");
+		MII_DEBUG_PRINTF(" ");
 		char dis[32];
 		mii_cpu_disasm_one(op, cpu->PC, dis, sizeof(dis),
 					MII_DUMP_DIS_DUMP_HEX);
-		printf(": %s", dis);
+		MII_DEBUG_PRINTF(": %s", dis);
 		if (d.desc.branch) {
 			if (MII_GET_P_BIT(cpu, d.desc.s_bit) == d.desc.s_bit_value)
-				printf(" ; taken");
+				MII_DEBUG_PRINTF(" ; taken");
 		}
-		printf("\n");
+		MII_DEBUG_PRINTF("\n");
 	}
 //	else
 //		printf("\n");
@@ -160,7 +161,7 @@ mii_dump_run_trace(
 		char dis[64];
 		mii_cpu_disasm_one(op, pc, dis, sizeof(dis),
 						MII_DUMP_DIS_PC | MII_DUMP_DIS_DUMP_HEX);
-		printf("%s\n", dis);
+		MII_DEBUG_PRINTF("%s\n", dis);
 	}
 }
 
@@ -209,9 +210,9 @@ mii_page_table_update(
 	bool intc8rom	= SWW_GETSTATE(sw, INTC8ROM);
 
 	if (unlikely(mii->trace_cpu))
-		printf("%04x: MEM update altzp:%d page2:%d store80:%d "
-				"hires:%d ramrd:%d ramwrt:%d intcxrom:%d "
-				"slotc3rom:%d\n", mii->cpu.PC,
+		MII_DEBUG_PRINTF("%04x: MEM update altzp:%d page2:%d store80:%d "
+			"hires:%d ramrd:%d ramwrt:%d intcxrom:%d "
+			"slotc3rom:%d\n", mii->cpu.PC,
 			altzp, page2, store80, hires, ramrd, ramwrt, intcxrom, slotc3rom);
 	// clean slate
 	mii_page_set(mii, MII_BANK_MAIN, MII_BANK_MAIN, 0x00, 0xbf);
@@ -284,8 +285,8 @@ mii_bank_update_ramworks(
 			if (mii->ramworks.avail & ((unsigned __int128)1ULL << i))
 				a++;
 		}
-		printf("%s: RAMWORKS alloc bank %2d (%dKB / %dKB)\n", __func__,
-				bank, c * 64, a * 64);
+		MII_DEBUG_PRINTF("%s: RAMWORKS alloc bank %2d (%dKB / %dKB)\n", __func__,
+			bank, c * 64, a * 64);
 	}
 	mii->bank[MII_BANK_AUX_BASE].mem = mii->ramworks.bank[0];
 	mii->bank[MII_BANK_AUX].mem = mii->ramworks.bank[bank];
@@ -327,7 +328,7 @@ _mii_deselect_cXrom(
 	for (int i = 0; i < 7; i++) {
 		mii_slot_t * slot = &mii->slot[i];
 		if (slot->aux_rom_selected) {
-			printf("%s %d: %s\n", __func__,
+			MII_DEBUG_PRINTF("%s %d: %s\n", __func__,
 					i, slot->drv ? slot->drv->name : "(none?)");
 			slot->aux_rom_selected = false;
 		}
@@ -466,11 +467,11 @@ mii_access_soft_switches(
 			case 0xc020 ... 0xc02f:
 				res = true;
 				if (mii->bank[MII_BANK_ROM].mem == mii->rom->rom) {
-					printf("BANKING IIC SECOND ROM\n");
+					MII_DEBUG_PRINTF("BANKING IIC SECOND ROM\n");
 					mii->bank[MII_BANK_ROM].mem = (uint8_t*)
 						mii->rom->rom + (16 * 1024);
 				} else {
-					printf("BANKING IIC FIRST ROM\n");
+					MII_DEBUG_PRINTF("BANKING IIC FIRST ROM\n");
 					mii->bank[MII_BANK_ROM].mem = (uint8_t*)mii->rom->rom;
 				}
 				return res;
@@ -689,12 +690,12 @@ void
 mii_init(
 		mii_t *mii )
 {
-	printf("  mii_init: clearing struct...\n");
+	MII_DEBUG_PRINTF("  mii_init: clearing struct...\n");
 	memset(mii, 0, sizeof(*mii));
 	mii->speed = MII_SPEED_NTSC;
 	mii->timer.map = 0;
 
-	printf("  mii_init: setting up banks...\n");
+	MII_DEBUG_PRINTF("  mii_init: setting up banks...\n");
 	for (int i = 0; i < MII_BANK_COUNT; i++)
 		mii->bank[i] = _mii_banks_init[i];
 
@@ -723,16 +724,16 @@ mii_init(
 	mii->bank[MII_BANK_CARD_ROM].no_alloc = 1;
 
 	// Initialize banks (won't allocate since no_alloc is set)
-	printf("  mii_init: initializing bank memory...\n");
+	MII_DEBUG_PRINTF("  mii_init: initializing bank memory...\n");
 	// For RP2350, only clear MAIN bank once - other banks share memory
 	// We allocated exactly the right sizes, so just clear each unique buffer once
-	printf("    Clearing main memory (64KB)\n");
+	MII_DEBUG_PRINTF("    Clearing main memory (64KB)\n");
 	memset(rp2350_main_mem, 0, sizeof(rp2350_main_mem));
-	printf("    Clearing aux memory (52KB)\n");
+	MII_DEBUG_PRINTF("    Clearing aux memory (52KB)\n");
 	memset(rp2350_aux_mem, 0, sizeof(rp2350_aux_mem));
-	printf("    Clearing soft switch area\n");
+	MII_DEBUG_PRINTF("    Clearing soft switch area\n");
 	memset(rp2350_sw_mem, 0, sizeof(rp2350_sw_mem));
-	printf("    Clearing card ROM area\n");
+	MII_DEBUG_PRINTF("    Clearing card ROM area\n");
 	// Unpopulated slots are effectively open-bus; $FF avoids accidental BRKs
 	// when firmware probes/executes slot ROM entry points.
 	memset(rp2350_card_rom, 0xFF, sizeof(rp2350_card_rom));
@@ -749,7 +750,7 @@ mii_init(
 	// Our version registers a lightweight VBL-only timer, not the full renderer
 	mii_video_init(mii);
 
-	printf("  mii_init: resetting CPU...\n");
+	MII_DEBUG_PRINTF("  mii_init: resetting CPU...\n");
 	mii_reset(mii, true);
 	mii->cpu_state = mii_cpu_init(&mii->cpu);
 	
@@ -759,7 +760,7 @@ mii_init(
 	for (int i = 0; i < 7; i++)
 		mii->slot[i].id = i;
 	
-	printf("  mii_init: complete\n");
+	MII_DEBUG_PRINTF("  mii_init: complete\n");
 }
 
 #else
@@ -826,7 +827,7 @@ mii_prepare(
 
 	mii_slot_drv_t * drv = mii_slot_drv_list;
 	while (drv) {
-		printf("%s driver: %s\n", __func__, drv->name);
+		MII_DEBUG_PRINTF("%s driver: %s\n", __func__, drv->name);
 		if (drv->probe && drv->probe(mii, flags)) {
 		//	printf("%s %s probe done\n", __func__, drv->name);
 		}
@@ -866,7 +867,7 @@ mii_reset(
 //	printf("%s cold %d\n", __func__, cold);
 	mii->rom = mii_rom_get("iiee");
 	if (mii->emu == MII_EMU_IIC) {
-		printf("IIC Mode engaged\n");;
+		MII_DEBUG_PRINTF("IIC Mode engaged\n");
 		mii->rom = mii_rom_get("iic");
 	}
 	mii->bank[MII_BANK_ROM].mem = (uint8_t*)mii->rom->rom;
@@ -1010,7 +1011,7 @@ _mii_handle_trap(
 		if (mii->trap.trap[trap].cb)
 			mii->trap.trap[trap].cb(mii, trap);
 	} else {
-		printf("%s TRAP %02x not handled\n", __func__, trap);
+		MII_DEBUG_PRINTF("%s TRAP %02x not handled\n", __func__, trap);
 		mii->state = MII_STOPPED;
 	}
 //	mii->state = MII_STOPPED;
@@ -1022,7 +1023,7 @@ mii_register_trap(
 		mii_trap_handler_cb cb)
 {
 	if (mii->trap.map == 0xffff) {
-		printf("%s no more traps!!\n", __func__);
+		MII_DEBUG_PRINTF("%s no more traps!!\n", __func__);
 		return 0xff;
 	}
 	for (int i = 0; i < (int)sizeof(mii->trap.map) * 8; i++) {
@@ -1044,7 +1045,7 @@ mii_timer_register(
 		const char *name)
 {
 	if (mii->timer.map == (uint64_t)-1ll) {
-		printf("%s no more timers!!\n", __func__);
+		MII_DEBUG_PRINTF("%s no more timers!!\n", __func__);
 		return 0xff;
 	}
 	int i = ffsll(~mii->timer.map) - 1;
@@ -1135,7 +1136,7 @@ mii_irq_register(
 		const char *name )
 {
 	if (mii->irq.map == 0xff) {
-		printf("%s no more IRQs!!\n", __func__);
+		MII_DEBUG_PRINTF("%s no more IRQs!!\n", __func__);
 		return 0xff;
 	}
 	for (int i = 0; i < (int)sizeof(mii->irq.map) * 8; i++) {
@@ -1279,9 +1280,9 @@ _mii_cpu_direct_access_cb(
 			if (addr >= mii->debug.bp[i].addr &&
 					addr < mii->debug.bp[i].addr + mii->debug.bp[i].size) {
 				if (((mii->debug.bp[i].kind & MII_BP_R) && !wr) ||
-						((mii->debug.bp[i].kind & MII_BP_W) && wr)) {
+					((mii->debug.bp[i].kind & MII_BP_W) && wr)) {
 					if (1 || !mii->debug.bp[i].silent) {
-						printf("BREAKPOINT %d at %04x PC:%04x\n",
+						MII_DEBUG_PRINTF("BREAKPOINT %d at %04x PC:%04x\n",
 							i, addr, mii->cpu.PC);
 						mii_dump_run_trace(mii);
 						mii_dump_trace_state(mii);
@@ -1370,7 +1371,7 @@ mii_cpu_step(
 		uint32_t count )
 {
 	if (mii->state != MII_STOPPED) {
-		printf("mii: can't step/next, not stopped\n");
+		MII_DEBUG_PRINTF("mii: can't step/next, not stopped\n");
 		return;
 	}
 	mii->trace.step_inst = count ? count : 1;
@@ -1383,7 +1384,7 @@ mii_cpu_next(
 		mii_t *mii)
 {
 	if (mii->state != MII_STOPPED) {
-		printf("mii: can't step/next, not stopped\n");
+		MII_DEBUG_PRINTF("mii: can't step/next, not stopped\n");
 		return;
 	}
 	// read current opcode, find how how many bytes it take,
@@ -1392,7 +1393,7 @@ mii_cpu_next(
 	// which case we use a normal 'step' behaviour
 	uint8_t op = 0;
 	mii_mem_access(mii, mii->cpu.PC, &op, false, false);
-	printf("NEXT opcode %04x:%02x\n", mii->cpu.PC, op);
+	MII_DEBUG_PRINTF("NEXT opcode %04x:%02x\n", mii->cpu.PC, op);
 	if (op == 0x20) {	// JSR here?
 		// set a temp breakpoint on reading 3 bytes from PC
 		if (mii->debug.bp_map != (uint16_t)-1) {
@@ -1406,7 +1407,7 @@ mii_cpu_next(
 			mii->state = MII_RUNNING;
 			return;
 		}
-		printf("%s no more breakpoints available\n", __func__);
+		MII_DEBUG_PRINTF("%s no more breakpoints available\n", __func__);
 	} else {
 		mii_cpu_step(mii, 1);
 	}

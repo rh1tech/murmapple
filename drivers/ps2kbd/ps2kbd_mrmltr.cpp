@@ -10,6 +10,7 @@
 //
 #include "ps2kbd_mrmltr.h"
 #include <cstdio>
+#include "debug_log.h"
 #if KBD_CLOCK_PIN == 2
 #include "ps2kbd_mrmltr2.pio.h"
 #else
@@ -17,8 +18,8 @@
 #endif
 #include "hardware/clocks.h"
 
-#ifdef DEBUG_PS2
-#define DBG_PRINTF(...) printf(__VA_ARGS__)
+#if ENABLE_DEBUG_LOGS
+#define DBG_PRINTF(...) std::printf(__VA_ARGS__)
 #else
 #define DBG_PRINTF(...)
 #endif
@@ -328,8 +329,8 @@ void Ps2Kbd_Mrmltr::handleActions() {
   
   DBG_PRINTF("PS/2 HID m=%2X ", _report.modifier);
   #ifdef DEBUG_PS2
-  for (int i = 0; i < HID_KEYBOARD_REPORT_MAX_KEYS; ++i) printf("%2X ", _report.keycode[i]);
-  printf("\n");
+  for (int i = 0; i < HID_KEYBOARD_REPORT_MAX_KEYS; ++i) DBG_PRINTF("%2X ", _report.keycode[i]);
+  DBG_PRINTF("\n");
   #endif
 }
 

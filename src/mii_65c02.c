@@ -12,6 +12,7 @@
 
 #include "minipt.h"
 #include "mii_65c02.h"
+#include "debug_log.h"
 #define MII_CPU_65C02_IMPL
 #include "mii_65c02_ops.h"
 
@@ -786,7 +787,7 @@ next_instruction:
 			//  NOPs
 			break;
 		default:
-			printf("%04x %02x UNKNOWN INSTRUCTION\n", cpu->PC, cpu->IR);
+			MII_DEBUG_PRINTF("%04x %02x UNKNOWN INSTRUCTION\n", cpu->PC, cpu->IR);
 		//	exit(1);
 			break;
 	}

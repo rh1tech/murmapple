@@ -10,6 +10,9 @@
 #include "usbhid.h"
 #include <stdio.h>
 #include <string.h>
+#include "debug_log.h"
+
+#define HID_DEBUG_PRINTF(...) MII_DEBUG_PRINTF(__VA_ARGS__)
 
 // Only compile if USB Host is enabled
 #if CFG_TUH_ENABLED
@@ -163,18 +166,29 @@ static void process_gamepad_report(uint8_t const *report, uint16_t len) {
     // Safety check
     if (report == NULL || len < 7) return;
     
+    // Debug: log raw D-pad bytes continuously when not centered
+#if ENABLE_DEBUG_LOGS
+    static uint8_t prev_dpad_x = 0x7F, prev_dpad_y = 0x7F;
+    if (report[3] != prev_dpad_x || report[4] != prev_dpad_y) {
+        HID_DEBUG_PRINTF("DPAD: X=%02X Y=%02X\n", report[3], report[4]);
+        prev_dpad_x = report[3];
+        prev_dpad_y = report[4];
+    }
+#endif
+    
     // Format discovered:
     // Byte 3: D-pad X (0x00=Left, 0x7F=center, 0xFF=Right)
     // Byte 4: D-pad Y (0x00=Up, 0x7F=center, 0xFF=Down)
     // Byte 5: A(0x20), B(0x40), X(0x10), Y(0x80)
     // Byte 6: L-shift(0x01), R-shift(0x02), Select(0x10), Start(0x20)
     
-    // D-pad from bytes 3-4
+    // D-pad from bytes 3-4 (with thresholds around center 0x7F/0x80)
+    // Some gamepads send 0x00/0xFF for extremes, others send values closer to center
     gamepad_dpad = 0;
-    if (report[3] < 0x40) gamepad_dpad |= 0x04; // Left
-    if (report[3] > 0xC0) gamepad_dpad |= 0x08; // Right
-    if (report[4] < 0x40) gamepad_dpad |= 0x01; // Up
-    if (report[4] > 0xC0) gamepad_dpad |= 0x02; // Down
+    if (report[3] < 0x60) gamepad_dpad |= 0x04; // Left (0x00-0x5F)
+    if (report[3] > 0x9F) gamepad_dpad |= 0x08; // Right (0xA0-0xFF)
+    if (report[4] < 0x60) gamepad_dpad |= 0x01; // Up (0x00-0x5F)
+    if (report[4] > 0x80) gamepad_dpad |= 0x02; // Down (0x81-0xFF) - lowered threshold
     
     // Buttons
     gamepad_buttons = 0;
@@ -255,14 +269,20 @@ static void process_generic_report(uint8_t dev_addr, uint8_t instance, uint8_t c
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *desc_report, uint16_t desc_len) {
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
     
+    HID_DEBUG_PRINTF("USB HID mount: dev=%d inst=%d proto=%d desc_len=%d\n", 
+                     dev_addr, instance, itf_protocol, desc_len);
+    
     if (itf_protocol == HID_ITF_PROTOCOL_KEYBOARD) {
         keyboard_connected = 1;
+        HID_DEBUG_PRINTF("  -> Keyboard connected\n");
     } else if (itf_protocol == HID_ITF_PROTOCOL_MOUSE) {
         mouse_connected = 1;
+        HID_DEBUG_PRINTF("  -> Mouse connected\n");
     }
     
     // Parse generic report descriptor
     if (itf_protocol == HID_ITF_PROTOCOL_NONE) {
+        HID_DEBUG_PRINTF("  -> Generic HID device\n");
         // Bounds check instance
         if (instance >= CFG_TUH_HID) {
             // Instance out of range, skip parsing
@@ -314,6 +334,20 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const *report, uint16_t len) {
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, instance);
     
+    // Debug: log all HID reports
+    static uint32_t report_counter = 0;
+#if ENABLE_DEBUG_LOGS
+    if ((report_counter++ % 60) == 0) {
+        HID_DEBUG_PRINTF("HID[%d] proto=%d len=%d: ", instance, itf_protocol, len);
+        for (int i = 0; i < len && i < 12; i++) {
+            HID_DEBUG_PRINTF("%02X ", report[i]);
+        }
+        HID_DEBUG_PRINTF("\n");
+    }
+#else
+    (void)report_counter;
+#endif
+    
     switch (itf_protocol) {
         case HID_ITF_PROTOCOL_KEYBOARD:
             if (report && len >= sizeof(hid_keyboard_report_t)) {
@@ -349,8 +383,10 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
 //--------------------------------------------------------------------
 
 void usbhid_init(void) {
+    HID_DEBUG_PRINTF("USB HID: Initializing TinyUSB Host...\n");
     // Initialize TinyUSB Host
     tuh_init(BOARD_TUH_RHPORT);
+    HID_DEBUG_PRINTF("USB HID: TinyUSB Host initialized\n");
     
     // Clear state
     memset(&prev_kbd_report, 0, sizeof(prev_kbd_report));

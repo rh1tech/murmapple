@@ -6,6 +6,7 @@
 #include "mii.h"
 #include "mockingboard.h"
 #include "mii_audio.h"
+#include "debug_log.h"
 
 typedef struct mii_mb_t {
 	mii_t *				mii;
@@ -53,7 +54,7 @@ _mii_mb_timer(
 				max = s;
 			mii_audio_frame_write(f, s);
 		}
-		printf("MB Audio cycle %ld r=%d min %.4f max %.4f\n",
+		MII_DEBUG_PRINTF("MB Audio cycle %ld r=%d min %.4f max %.4f\n",
 				mb->flush_cycle_count, r, min, max);
 	}
 	return res;
@@ -64,7 +65,7 @@ mii_mb_start(
 		mii_mb_t *mb)
 {
 //	mb_io_reset(mb->mb, &clock);
-	printf("MB Start\n");
+	MII_DEBUG_PRINTF("MB Start\n");
 	mb->init = 0;
 	mb->init_done = true;
 	mb->flush_cycle_count = 512 * mb->mii->audio.clk_per_sample;
@@ -83,7 +84,7 @@ _mii_mb_romspace_access(
 		bool write)
 {
 	if (!bank) {	// TODO: dispose
-		printf("%s: no bank\n", __func__);
+		MII_DEBUG_PRINTF("%s: no bank\n", __func__);
 		return false;
 	}
 	mii_mb_t * mb = param;
@@ -127,7 +128,7 @@ _mii_mb_probe(
 		mii_t *mii,
 		uint32_t flags)
 {
-	printf("%s %s\n", __func__, flags & MII_INIT_MOCKINGBOARD ?
+	MII_DEBUG_PRINTF("%s %s\n", __func__, flags & MII_INIT_MOCKINGBOARD ?
 			"enabled" : "disabled");
 //	if (!(flags & MII_INIT_MOCKINGBOARD))
 //		return 0;
@@ -140,7 +141,7 @@ _mii_mb_init(
 		mii_t * mii,
 		struct mii_slot_t *slot )
 {
-	printf("%s\n", __func__);
+	MII_DEBUG_PRINTF("%s\n", __func__);
 	mii_mb_t * mb = calloc(1, sizeof(*mb));
 	slot->drv_priv = mb;
 	mb->mii = mii;
@@ -171,7 +172,7 @@ _mii_mb_reset(
 		struct mii_slot_t *slot )
 {
 	mii_mb_t *mb = slot->drv_priv;
-	printf("%s\n", __func__);
+	MII_DEBUG_PRINTF("%s\n", __func__);
 	mb_clock_t clock = {
 			.ref_step = 1,
 			.ts = mii->cpu.total_cycle,

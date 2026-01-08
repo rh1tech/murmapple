@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "mii.h"
+#include "debug_log.h"
 
 void
 mii_audio_init(
@@ -41,7 +42,7 @@ mii_audio_set_driver(
 		mii_audio_sink_t *sink,
 		const mii_audio_driver_t *drv)
 {
-	printf("%s: %p\n", __func__, drv);
+		MII_DEBUG_PRINTF("%s: %p\n", __func__, drv);
 	sink->drv = (mii_audio_driver_t*)drv;
 }
 
@@ -63,7 +64,7 @@ mii_audio_run(
 		s->cpu_speed = s->mii->speed;
 		s->clk_per_sample = ((1000000.0 * s->mii->speed) /
 					(float)MII_AUDIO_FREQ) + 0.5f;
-		printf("%s: %.2f cycles per sample\n", __func__, s->clk_per_sample);
+		MII_DEBUG_PRINTF("%s: %.2f cycles per sample\n", __func__, s->clk_per_sample);
 	}
 }
 
