@@ -71,23 +71,27 @@ typedef struct mii_floppy_heatmap_t {
 // the last track is used for noise
 #define MII_FLOPPY_NOISE_TRACK		MII_FLOPPY_TRACK_COUNT
 
+#pragma pack(push, 1)
 typedef struct mii_floppy_t {
 	// write_protected is a bitfield of MII_FLOPPY_WP_*
-	uint8_t 			write_protected : 3,
-						id : 2;
-	uint8_t 			bit_timing;		// 0=32 (default)
-	uint8_t				motor;			// motor is on
-	uint8_t 			stepper;		// last step we did...
-	uint8_t 			qtrack;			// quarter track we are on
-	uint32_t			bit_position;
+	uint8_t 			write_protected : 3;
+	uint8_t				id : 2;
+
+	uint8_t 			bit_timing;		// 0=32 (default) 				// offset 1
+	uint8_t				motor;			// motor is on 					// 2
+	uint8_t 			stepper;		// last step we did... 			// 3
+	uint8_t 			qtrack;			// quarter track we are on 		// 4
+													uint8_t _pad1[3];	// → offset 8
+	uint32_t			bit_position; 									// 8
 	// this two relate to what we do when LSS needs to return random bits
-	uint32_t 			random_position;// position in the random data
-	uint8_t				random;			// random data is used
+	uint32_t 			random_position;// position in the random data 	// 12
+	uint8_t				random;			// random data is used 			// 16
+													uint8_t _pad2[3];	// → 20
 	// this is incremented each time a track is marked dirty
 	// used when deciding wether to save to disk (or update texture)
-	uint32_t 			seed_dirty;
-	uint32_t			seed_saved;		// last seed we saved at
-	uint8_t 			track_id[MII_FLOPPY_TRACK_COUNT * 4];
+	uint32_t 			seed_dirty;										// 20
+	uint32_t			seed_saved;		// last seed we saved at		// 24
+	uint8_t 			track_id[MII_FLOPPY_TRACK_COUNT * 4];			// 28
 	mii_floppy_track_t 	tracks[MII_FLOPPY_TRACK_COUNT + 1];
 	// keep all the data together, we'll use it to make a texture
 	// the last track is used for noise
@@ -97,6 +101,10 @@ typedef struct mii_floppy_t {
 	 * no functional use */
 	mii_floppy_heatmap_t * heat;	// optional heatmap
 } mii_floppy_t;
+#pragma pack(push, 0)
+
+_Static_assert(offsetof(mii_floppy_t, bit_position) == 8, "ABI mismatch");
+_Static_assert(offsetof(mii_floppy_t, random) == 16, "ABI mismatch");
 
 /*
  * Initialize a floppy structure with random data. It is not formatted,
