@@ -1,16 +1,30 @@
+# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
+if(WIN32)
+    set(USERHOME $ENV{USERPROFILE})
+else()
+    set(USERHOME $ENV{HOME})
+endif()
+set(sdkVersion 2.2.0)
+set(toolchainVersion 14_2_Rel1)
+set(picotoolVersion 2.2.0-a4)
+set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
+if (EXISTS ${picoVscode})
+    include(${picoVscode})
+endif()
+# ====================================================================================
 cmake_minimum_required(VERSION 3.13)
 
 # Set board to Pico 2 (RP2350)
 set(PICO_BOARD pico2 CACHE STRING "Pico board type")
 
 # Board configuration variant (M1, M2)
-set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
+set(BOARD_VARIANT "M2" CACHE STRING "Board variant: M1 or M2")
 
 # CPU overclock configuration (252, 378, 504 MHz)
 set(CPU_SPEED "252" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
-set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
+#set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
 
 # CPU voltage selection based on speed
 if(CPU_SPEED GREATER_EQUAL 504)
@@ -41,7 +55,11 @@ option(PS2_KEYBOARD_ENABLED "Enable PS/2 keyboard input" ON)
 option(DEBUG_LOGS_ENABLED "Enable verbose debug logging" OFF)
 
 message(STATUS "murmapple - Apple IIe Emulator for RP2350")
-message(STATUS "Board: ${BOARD_VARIANT}, CPU: ${CPU_SPEED} MHz, PSRAM: ${PSRAM_SPEED} MHz, Voltage: ${CPU_VOLTAGE}")
+if (PSRAM_SPEED)
+    message(STATUS "Board: ${BOARD_VARIANT}, CPU: ${CPU_SPEED} MHz, PSRAM: ${PSRAM_SPEED} MHz, Voltage: ${CPU_VOLTAGE}")
+else ()
+    message(STATUS "Board: ${BOARD_VARIANT}, CPU: ${CPU_SPEED} MHz, Voltage: ${CPU_VOLTAGE}")
+endif ()
 message(STATUS "I2S Audio: DATA=${I2S_DATA_PIN}, CLK_BASE=${I2S_CLOCK_PIN_BASE}")
 
 include(pico_sdk_import.cmake)
@@ -70,17 +88,25 @@ add_subdirectory(drivers/sdcard)
 add_subdirectory(drivers/usbhid)
 
 # Create a library for drivers
+if (PSRAM_SPEED)
+    add_library(drivers
+        drivers/psram_init.c
+        drivers/psram_allocator.c
+    )
+    target_compile_definitions(drivers PRIVATE
+        PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
+    )
+endif()
+
 add_library(drivers
     drivers/HDMI.c
-    drivers/psram_init.c
-    drivers/psram_allocator.c
     drivers/nespad/nespad.c
 )
 target_include_directories(drivers PUBLIC drivers drivers/nespad src)
 target_compile_definitions(drivers PRIVATE
     BOARD_${BOARD_VARIANT}
-    PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
 )
+
 target_link_libraries(drivers pico_stdlib hardware_dma hardware_pio hardware_spi)
 
 # Apple IIe Emulator sources
@@ -123,7 +149,6 @@ target_compile_definitions(murmapple PRIVATE
     BOARD_${BOARD_VARIANT}
     CPU_CLOCK_MHZ=${CPU_SPEED}
     CPU_VOLTAGE=${CPU_VOLTAGE}
-    PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
     MII_65C02_DIRECT_ACCESS=1
     MII_RP2350=1
     # I2S Audio configuration
@@ -191,3 +216,5 @@ pico_enable_stdio_uart(murmapple 1)
 
 # Create UF2 output
 pico_add_extra_outputs(murmapple)
+
+target_link_options(murmapple PRIVATE -Xlinker --print-memory-usage --data-sections)
