@@ -272,11 +272,13 @@ int mii_startscreen_show(mii_startscreen_info_t *info) {
     snprintf(line, sizeof(line), "CPU: %lu MHz", info->cpu_mhz);
     draw_centered_string(buffer, screen_w, content_y, line, COLOR_TEXT);
     content_y += LINE_HEIGHT;
-    
+
+#if PSRAM_MAX_FREQ_MHZ
     snprintf(line, sizeof(line), "PSRAM: %lu MHz", info->psram_mhz);
     draw_centered_string(buffer, screen_w, content_y, line, COLOR_TEXT);
     content_y += LINE_HEIGHT;
-    
+#endif
+
     snprintf(line, sizeof(line), "Board: M%d", info->board_variant);
     draw_centered_string(buffer, screen_w, content_y, line, COLOR_TEXT);
     

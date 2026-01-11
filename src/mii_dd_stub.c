@@ -85,18 +85,7 @@ mii_dd_file_dispose(
 			f = f->next;
 		}
 	}
-	
-	// Clear association with drive
-	if (file->dd) {
-		file->dd->file = NULL;
-		file->dd = NULL;
-	}
-	
-	// On Pico, we don't free the map since it points to PSRAM
-	// and we don't have an fd to close
-	file->map = NULL;
-	file->start = NULL;
-	
+
 	// Don't free pathname since it's statically allocated in disk_loader
 	// free(file);  // Don't free - we use static allocation
 }
@@ -134,6 +123,7 @@ mii_dd_read(
 {
 	// Block device read - used for SmartPort/ProDOS blocks
 	// For floppy disk (Disk II), we use the track-based access instead
+	/* not supported DD
 	if (!dd->file || !dd->file->map)
 		return -1;
 		
@@ -142,6 +132,8 @@ mii_dd_read(
 		mii_bank_poke(bank, addr + i, src[i]);
 	}
 	return 0;
+	*/
+	return -1;
 }
 
 int
@@ -153,6 +145,7 @@ mii_dd_write(
 		uint16_t 	blockcount)
 {
 	// Block device write - used for SmartPort/ProDOS blocks
+	/* not supported DD
 	if (!dd->file || !dd->file->map || dd->file->read_only)
 		return -1;
 		
@@ -161,4 +154,6 @@ mii_dd_write(
 		dst[i] = mii_bank_peek(bank, addr + i);
 	}
 	return 0;
+	*/
+	return -1;
 }

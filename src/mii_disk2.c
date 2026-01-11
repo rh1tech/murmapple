@@ -21,20 +21,49 @@
 #include "mii_disk2_asm.h"
 #endif
 
-// RP2350: Use PSRAM for large allocations
+// RP2350
 #ifdef MII_RP2350
-// PSRAM allocation for disk2 card - the structure is ~500KB!
-#define PSRAM_BASE 0x11000000
-// Reserve space after disk images (2 * 256KB = 512KB offset, then card structure)
-#define DISK2_PSRAM_OFFSET (512 * 1024)
-static mii_card_disk2_t *psram_alloc_disk2(void) {
-    // Allocate disk2 card structure in PSRAM
-    mii_card_disk2_t *c = (mii_card_disk2_t *)(PSRAM_BASE + DISK2_PSRAM_OFFSET);
-    memset(c, 0, sizeof(*c));
-    printf("Disk2 card allocated in PSRAM at %p (size=%u bytes)\n", c, (unsigned)sizeof(*c));
-    return c;
+static mii_card_disk2_t mii_card_disk2 = { 0 };
+const uint8_t noize[MII_FLOPPY_MAX_TRACK_SIZE] = {
+    /* 256-байтный шумовой блок, повторённый 26 раз */
+    /* block 0 */
+    0xA7,0x3C,0x91,0x5E,0xD4,0x1F,0x88,0x62,0xB9,0x04,0xE3,0x7A,0x2D,0xC1,0x56,0x9B,
+    0x6F,0x18,0xE9,0x43,0xA2,0x7C,0x0F,0xD1,0x95,0x3A,0x68,0xBE,0x24,0xF7,0x50,0x8D,
+    0x1A,0xC7,0x72,0xE4,0x39,0x96,0x5D,0xA8,0x0B,0xF1,0x64,0x2E,0xCB,0x87,0x14,0x9F,
+    0xD8,0x31,0x7E,0xA5,0x42,0xE0,0x6B,0x1C,0x90,0xF5,0x28,0xBD,0x53,0x86,0xDA,0x0E,
+    0x75,0xC4,0x19,0xAF,0x60,0xE8,0x33,0x9C,0xD2,0x47,0x8A,0xF0,0x2B,0x61,0xBE,0x14,
+    0x97,0x5A,0xC0,0xED,0x36,0xA1,0x78,0x0D,0xF9,0x24,0x6E,0x93,0xB7,0x48,0xD5,0x1F,
+    0x82,0x3D,0xE7,0x59,0xA4,0x6C,0x10,0xCB,0xF3,0x2A,0x95,0x7F,0xD0,0x41,0x8E,0xB6,
+    0x0C,0xEA,0x34,0x61,0x9A,0xF8,0x25,0xD9,0x4E,0x87,0xB2,0x1B,0x6F,0xC5,0x30,0xAD,
+    0x52,0xE1,0x79,0x08,0x9E,0xF4,0x2F,0x63,0xBC,0x15,0xD7,0x4A,0x80,0xE9,0x36,0xA3,
+    0x5C,0x1D,0xF2,0x67,0x98,0x0A,0xC6,0x3B,0xE4,0x71,0xAF,0x24,0x8B,0xD1,0x59,0x90,
+    0xF7,0x0F,0x62,0xB8,0x35,0xCE,0x84,0x1A,0xA0,0x6D,0xE2,0x4F,0x93,0x28,0xFD,0x57,
+    0xC1,0x78,0x0E,0xA6,0x34,0xED,0x5B,0x92,0xF0,0x19,0x7C,0xC9,0x2D,0xB1,0x48,0xE6,
+    0x83,0x14,0x9D,0xF5,0x6A,0x20,0xCF,0x57,0xA9,0x3E,0xD4,0x81,0x0B,0x6F,0xE8,0x95,
+    0x42,0xBD,0x28,0xF1,0x5E,0xA7,0x10,0xC3,0x79,0xD8,0x34,0x8F,0xE0,0x1C,0xB5,0x6A,
+    0x94,0x2E,0xF9,0x07,0xC0,0x58,0xAD,0x31,0xE5,0x7B,0x82,0x1F,0xD6,0xA1,0x4C,0x90,
+    0xF3,0x26,0x68,0xBD,0x53,0x0D,0xC7,0x9A,0xE1,0x34,0x7F,0xA8,0x15,0xD2,0x4B,0x86,
+
+    /* blocks 1..25 — тот же 256-байтный паттерн, повторённый */
+#define REPEAT_25_TIMES \
+    0xA7,0x3C,0x91,0x5E,0xD4,0x1F,0x88,0x62,0xB9,0x04,0xE3,0x7A,0x2D,0xC1,0x56,0x9B,\
+    0x6F,0x18,0xE9,0x43,0xA2,0x7C,0x0F,0xD1,0x95,0x3A,0x68,0xBE,0x24,0xF7,0x50,0x8D,\
+    0x1A,0xC7,0x72,0xE4,0x39,0x96,0x5D,0xA8,0x0B,0xF1,0x64,0x2E,0xCB,0x87,0x14,0x9F,\
+    0xD8,0x31,0x7E,0xA5,0x42,0xE0,0x6B,0x1C,0x90,0xF5,0x28,0xBD,0x53,0x86,0xDA,0x0E
+
+    REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES,
+    REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES,
+    REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES,
+    REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES,
+    REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES,
+    REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES, REPEAT_25_TIMES,
+    REPEAT_25_TIMES
+#undef REPEAT_25_TIMES
+};
+static mii_card_disk2_t *rp2350_alloc_disk2(void) {
+    return &mii_card_disk2;
 }
-#define DISK2_ALLOC() psram_alloc_disk2()
+#define DISK2_ALLOC() rp2350_alloc_disk2()
 #else
 #define DISK2_ALLOC() calloc(1, sizeof(mii_card_disk2_t))
 #endif
@@ -98,6 +127,8 @@ _mii_floppy_lss_cb(
 		mii_t * mii,
 		void * param );
 
+void disk_reload_track(uint8_t drive, uint8_t track_id, mii_t* mii); // disk_loader.c
+
 static uint8_t
 _mii_disk2_switch_track(
 		mii_t *mii,
@@ -109,23 +140,26 @@ _mii_disk2_switch_track(
 	if (qtrack < 0) qtrack = 0;
 	if (qtrack >= MII_FLOPPY_TRACK_COUNT * 4)
 			qtrack = (MII_FLOPPY_TRACK_COUNT * 4) -1;
-
+	printf("switch_track qt: %d -> %d\n", f->qtrack, qtrack);
 	if (qtrack == f->qtrack)
 		return f->qtrack;
 
 	uint8_t track_id = f->track_id[f->qtrack];
-//	if (track_id != 0xff)
-//		printf("NEW TRACK D%d: %d\n", c->selected, track_id);
 	uint8_t track_id_new = f->track_id[qtrack];
 	if (track_id != track_id_new && track_id != MII_FLOPPY_NOISE_TRACK) {
 		if (track_id == 0 && c->vcd)
 			_mii_disk2_vcd_debug(c, 0);
-		if (f->seed_dirty != f->seed_saved) {
-		//	mii_floppy_resync_track(f, track_id, 0);
-		}
 	}
 	if (track_id_new >= MII_FLOPPY_TRACK_COUNT)
 		track_id_new = MII_FLOPPY_NOISE_TRACK;
+	if (track_id != track_id_new) {
+		if (track_id_new != MII_FLOPPY_NOISE_TRACK)
+			disk_reload_track(c->selected, track_id_new, mii);
+		else {
+			printf("noising track %d\n", track_id_new);
+			memcpy(f->curr_track_data, noize, sizeof(noize));
+		}
+	}
 	/* adapt the bit position from one track to the others, from WOZ specs */
 	if (track_id_new != MII_FLOPPY_NOISE_TRACK) {
 		uint32_t track_size = f->tracks[track_id].bit_count;
@@ -208,8 +242,10 @@ _mii_disk2_reset(
 	for (int i = 0; i < 2; i++) {
 		c->selected = i;
 		_mii_floppy_motor_off_cb(mii, c);
-		// Reset floppy head position to track 0
-		c->floppy[i].qtrack = 0;
+		// NO NOT Reset floppy head position to track 0
+		// BECAUSE it point to wrong track_id (not related to curr_track_data)
+	//	c->floppy[i].qtrack = 0;
+	//	memcpy(c->floppy[i].curr_track_data, noize, MII_FLOPPY_MAX_TRACK_SIZE);
 		c->floppy[i].bit_position = 0;
 		c->floppy[i].stepper = 0;
 	}
@@ -604,10 +640,10 @@ _mii_disk2_lss_tick_fast(
 			f->random_position = lfsr & 0xFFFF;
 			if (f->random_position >= bit_count)
 				f->random_position = 0;
-			rp = (f->track_data[MII_FLOPPY_NOISE_TRACK][f->random_position >> 3] >> (f->random_position & 7)) & 1;
+			rp = (noize[f->random_position >> 3] >> (f->random_position & 7)) & 1;
 			f->random_position++;
 		} else {
-			rp = (f->track_data[MII_FLOPPY_NOISE_TRACK][f->random_position >> 3] >> (f->random_position & 7)) & 1;
+			rp = (noize[f->random_position >> 3] >> (f->random_position & 7)) & 1;
 			f->random_position++;
 			if (f->random_position >= bit_count)
 				f->random_position = 0;
@@ -766,7 +802,7 @@ _mii_floppy_lss_cb(
 	}
 	
 	const uint8_t track_id = f->track_id[f->qtrack];
-	uint8_t *track = f->track_data[track_id];
+	uint8_t *track = f->curr_track_data;
 	
 	if (track == NULL)
 		return ret;
@@ -842,7 +878,7 @@ _mii_disk2_lss_tick(
 	c->clock += 4;	// 4 is 0.5us.. we run at 2MHz
 
 	uint8_t 	track_id 	= f->track_id[f->qtrack];
-	uint8_t * 	track 		= f->track_data[track_id];
+	uint8_t * 	track 		= f->curr_track_data;
 	
 	// Debug: Check if track data is valid (limited)
 	lss_tick_count++;
@@ -877,7 +913,7 @@ _mii_disk2_lss_tick(
 				f->random_position = random() % f->tracks[track_id].bit_count;
 #endif
 			}
-			bit = f->track_data[MII_FLOPPY_NOISE_TRACK][f->random_position / 8];
+			bit = noize[f->random_position / 8];
 			rp = (bit >> (f->random_position % 8)) & 1;
 			f->random_position = (f->random_position + 1) % \
 						f->tracks[track_id].bit_count;
@@ -966,8 +1002,8 @@ _mii_disk2_lss_tick(
 				}
 				f->seed_dirty++;
 			}
-			f->track_data[track_id][byte_index] &= ~(1 << bit_index);
-			f->track_data[track_id][byte_index] |= (bit << bit_index);
+			f->curr_track_data[byte_index] &= ~(1 << bit_index);
+			f->curr_track_data[byte_index] |= (bit << bit_index);
 		} else {
 			mii_raise_signal_float(c->sig + SIG_LSS_WB, 0, 0);
 		}

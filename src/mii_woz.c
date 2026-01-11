@@ -43,6 +43,8 @@ mii_floppy_woz_write_track(
 		mii_dd_file_t *file,
 		int track_id )
 {
+// unsupported for now
+#if 0
 	mii_woz_header_t *header = (mii_woz_header_t *)file->map;
 
 	int version = !strncmp((char*)header, "WOZ", 3);
@@ -87,6 +89,7 @@ mii_floppy_woz_write_track(
 		memcpy(track, f->track_data[track_id], byte_count);
 	}
 	f->tracks[track_id].dirty = 0;
+#endif
 	return 0;
 }
 
@@ -111,6 +114,8 @@ mii_floppy_woz_load(
 	mii_floppy_t *f,
 	mii_dd_file_t *file )
 {
+// unsupported for now
+#if 0
 	const char *filename = basename(file->pathname);
 	MII_DEBUG_PRINTF("%s: loading WOZ %s\n", __func__, filename);
 	mii_woz_header_t *header = (mii_woz_header_t *)file->map;
@@ -187,4 +192,6 @@ mii_floppy_woz_load(
 		}
 	}
 	return version;
+#endif
+	return 0;
 }

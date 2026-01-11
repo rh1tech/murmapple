@@ -69,9 +69,11 @@ extern const uint8_t mii_rom_iiee_video[];
 #define HDMI_WIDTH 320
 #define HDMI_HEIGHT 240
 
+#if PSRAM_MAX_FREQ_MHZ
 // PSRAM interface
 extern void psram_init(uint cs_pin);
 extern void psram_set_sram_mode(int enable);
+#endif
 
 // PS/2 keyboard interface
 #ifndef ENABLE_PS2_KEYBOARD
@@ -410,6 +412,7 @@ int main() {
     MII_DEBUG_PRINTF("=================================\n");
     MII_DEBUG_PRINTF("System Clock: %lu MHz\n", clock_get_hz(clk_sys) / 1000000);
     
+#if PSRAM_MAX_FREQ_MHZ
     // Initialize PSRAM
     MII_DEBUG_PRINTF("Initializing PSRAM...\n");
     uint psram_pin = get_psram_pin();
@@ -427,7 +430,8 @@ int main() {
     if (psram[0] != 0xAB || psram[1] != 0xCD || psram[2] != 0xEF) {
         MII_DEBUG_PRINTF("ERROR: PSRAM read/write failed!\n");
     }
-    
+#endif
+
     // Allocate HDMI framebuffer in SRAM (not PSRAM!) - DMA needs fast access
     MII_DEBUG_PRINTF("Allocating HDMI framebuffer in SRAM...\n");
     // Double-buffer to prevent tearing: one buffer scanned out by HDMI DMA, one rendered by core1.
@@ -602,7 +606,9 @@ int main() {
         .subtitle = "Apple IIe Emulator",
         .version = "v1.00",
         .cpu_mhz = CPU_CLOCK_MHZ,
+#if PSRAM_MAX_FREQ_MHZ
         .psram_mhz = PSRAM_MAX_FREQ_MHZ,
+#endif
         .board_variant = board_num,
     };
     mii_startscreen_show(&screen_info);
@@ -946,7 +952,7 @@ int main() {
         }
         
          // Print detailed performance metrics every 300 frames (5 seconds)
-    #if ENABLE_DEBUG_LOGS
+    #if 0
          if ((frame_count % 300) == 0) {
              uint32_t elapsed_us = time_us_32() - metrics_start_us;
              uint32_t avg_frame_us = total_emu_time / 300;

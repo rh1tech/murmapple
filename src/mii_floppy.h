@@ -93,10 +93,8 @@ typedef struct mii_floppy_t {
 	uint32_t			seed_saved;		// last seed we saved at		// 24
 	uint8_t 			track_id[MII_FLOPPY_TRACK_COUNT * 4];			// 28
 	mii_floppy_track_t 	tracks[MII_FLOPPY_TRACK_COUNT + 1];
-	// keep all the data together, we'll use it to make a texture
-	// the last track is used for noise
-	uint8_t 			track_data[MII_FLOPPY_TRACK_COUNT + 1]
-									[MII_FLOPPY_MAX_TRACK_SIZE];
+	// only one active binary track per drive
+	uint8_t 			curr_track_data[MII_FLOPPY_MAX_TRACK_SIZE];
 	/* This is set by the UI to track the head movements,
 	 * no functional use */
 	mii_floppy_heatmap_t * heat;	// optional heatmap
