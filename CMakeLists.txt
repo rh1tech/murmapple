@@ -21,7 +21,7 @@ set(PICO_BOARD pico2 CACHE STRING "Board type")
 set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
 
 # CPU overclock configuration (252, 378, 504 MHz)
-set(CPU_SPEED "252" CACHE STRING "CPU clock in MHz: 252, 378, 504")
+set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 #set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
@@ -140,6 +140,12 @@ add_executable(murmapple
     src/mockingboard.c
 )
 
+if (PICO_BOARD STREQUAL "pico")
+    pico_define_boot_stage2(slower_boot2 ${PICO_DEFAULT_BOOT_STAGE2_FILE})
+    target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
+    pico_set_boot_stage2(${PROJECT_NAME} slower_boot2)
+endif()
+
 target_include_directories(murmapple PRIVATE
     src
     drivers
@@ -160,7 +166,7 @@ target_compile_definitions(murmapple PRIVATE
     PICO_AUDIO_I2S_DMA_CHANNEL=6
     PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
     PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
-    FEATURE_AUDIO=1
+#    FEATURE_AUDIO=1
 )
 
 if(PS2_KEYBOARD_ENABLED)

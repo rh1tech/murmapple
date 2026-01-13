@@ -173,7 +173,7 @@ typedef struct mii_t {
 	 * These memory blocks replace the main AUX bank when a register is set.
 	 */
 	struct {
-#if MII_RP2350
+#if PICO_RP2040 || PICO_RP2350
 		uint32_t			avail_lo;
 		uint32_t			avail_hi;
 		uint32_t			avail_lo2;

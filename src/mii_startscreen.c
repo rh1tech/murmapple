@@ -218,7 +218,7 @@ static void draw_centered_string(uint8_t *fb, int fb_width, int y, const char *s
 //=============================================================================
 // Start screen implementation
 //=============================================================================
-
+/*
 int mii_startscreen_show(mii_startscreen_info_t *info) {
     if (!info) {
         MII_DEBUG_PRINTF("Start screen: info is NULL\n");
@@ -299,3 +299,4 @@ int mii_startscreen_show(mii_startscreen_info_t *info) {
     
     return 0;
 }
+*/

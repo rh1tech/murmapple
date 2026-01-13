@@ -63,7 +63,7 @@ int mii_cpu_disasm_one(char *buf, size_t buflen, mii_cpu_t *cpu,
 
 // External ROM data (from ROM files)
 extern const uint8_t mii_rom_iiee[16384];
-extern const uint8_t mii_rom_iiee_video[4096];
+extern uint8_t mii_rom_iiee_video[4096];
 
 // HDMI framebuffer dimensions (driver line-doubles to 640x480)
 #undef HDMI_WIDTH
@@ -130,10 +130,6 @@ static void __no_inline_not_in_flash_func(set_flash_timings)(int cpu_mhz) {
 
 // Global emulator state (non-static for access from mii_speaker_click stub)
 mii_t g_mii;
-
-// HDMI framebuffer
-static uint8_t *g_hdmi_front_buffer = NULL;
-static uint8_t *g_hdmi_back_buffer = NULL;
 
 // Apple II color palette (RGB888)
 static const uint32_t apple2_rgb888[16] = {
@@ -293,29 +289,22 @@ static void core1_main(void) {
     
     MII_DEBUG_PRINTF("Core 1: Starting video rendering\n");
     
-    bool was_ui_visible = false;
+  //  bool was_ui_visible = false;
     uint32_t last_frame = hdmi_get_frame_count();
     
     while (1) {
         sleep_ms(16);
         
         // Check if disk UI is visible
-        bool ui_visible = disk_ui_is_visible();
+   //     bool ui_visible = disk_ui_is_visible();
         
         // Always render into the back buffer, then request a swap on vsync.
-        if (ui_visible) {
-            // When the UI first becomes visible, seed the back buffer from the
-            // current front buffer so the modal draws over a stable background.
-            if (!was_ui_visible) {
-                memcpy(g_hdmi_back_buffer, g_hdmi_front_buffer, HDMI_WIDTH * HDMI_HEIGHT);
-            }
-            disk_ui_render(g_hdmi_back_buffer, HDMI_WIDTH, HDMI_HEIGHT);
-        } else {
-            mii_video_render(&g_mii);
-            mii_video_scale_to_hdmi(&g_mii.video, g_hdmi_back_buffer);
-        }
-
-        graphics_request_buffer_swap(g_hdmi_back_buffer);
+    //    if (ui_visible) {
+///            disk_ui_render(g_hdmi_back_buffer, HDMI_WIDTH, HDMI_HEIGHT);
+    //    } else {
+///            mii_video_scale_to_hdmi(&g_mii.video, g_hdmi_back_buffer);
+            mii_video_prep_hdmi_frame();
+    //    }
 
         // Wait until the swap has actually happened (vsync tick), then rotate buffers.
         // This avoids writing into the buffer currently being scanned out.
@@ -326,11 +315,7 @@ static void core1_main(void) {
             sleep_ms(1);
         } while (1);
         last_frame = f;
-        uint8_t *tmp = g_hdmi_front_buffer;
-        g_hdmi_front_buffer = g_hdmi_back_buffer;
-        g_hdmi_back_buffer = tmp;
-        
-        was_ui_visible = ui_visible;
+    //    was_ui_visible = ui_visible;
     }
 }
 
@@ -391,8 +376,12 @@ int main() {
     // Overclock support: For speeds > 252 MHz, increase voltage first
 #if CPU_CLOCK_MHZ > 252
     vreg_disable_voltage_limit();
+#if PICO_RP2040
+    vreg_set_voltage(VREG_VOLTAGE_1_30);
+#else
     vreg_set_voltage(CPU_VOLTAGE);
     set_flash_timings(CPU_CLOCK_MHZ);
+#endif
     sleep_ms(100);
 #endif
     
@@ -429,26 +418,9 @@ int main() {
         MII_DEBUG_PRINTF("ERROR: PSRAM read/write failed!\n");
     }
 #endif
-
-    // Allocate HDMI framebuffer in SRAM (not PSRAM!) - DMA needs fast access
-    MII_DEBUG_PRINTF("Allocating HDMI framebuffer in SRAM...\n");
-    // Double-buffer to prevent tearing: one buffer scanned out by HDMI DMA, one rendered by core1.
-    static uint8_t b1[HDMI_WIDTH * HDMI_HEIGHT] = { 0 };
-    static uint8_t b2[HDMI_WIDTH * HDMI_HEIGHT] = { 0 };
-    g_hdmi_front_buffer = b1;
-    g_hdmi_back_buffer = b2;
-    if (!g_hdmi_front_buffer || !g_hdmi_back_buffer) {
-        MII_DEBUG_PRINTF("ERROR: Failed to allocate HDMI framebuffer\n");
-        while (1) tight_loop_contents();
-    }
-    MII_DEBUG_PRINTF("HDMI buffers allocated: front=%p back=%p (%d bytes each)\n",
-           g_hdmi_front_buffer, g_hdmi_back_buffer, HDMI_WIDTH * HDMI_HEIGHT);
-    memset(g_hdmi_front_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
-    memset(g_hdmi_back_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
     
     // IMPORTANT: Set buffer and resolution BEFORE graphics_init() 
     // because DMA/IRQs start immediately and will read from the buffer
-    graphics_set_buffer(g_hdmi_front_buffer);
     graphics_set_res(HDMI_WIDTH, HDMI_HEIGHT);
     
     // Initialize HDMI graphics (starts DMA/IRQs)
@@ -466,10 +438,6 @@ int main() {
     extern uint32_t conv_color[];
     uint64_t *conv_color64 = (uint64_t *)conv_color;
     MII_DEBUG_PRINTF("conv_color[15] = 0x%016llx 0x%016llx\n", conv_color64[30], conv_color64[31]);
-    
-    // Clear framebuffer to black
-    memset(g_hdmi_front_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
-    memset(g_hdmi_back_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
     
     // Initialize PS/2 keyboard
     MII_DEBUG_PRINTF("Initializing PS/2 keyboard...\n");
@@ -582,6 +550,7 @@ int main() {
                p[0], p[1], p[2], p[3]);
     } else {
         MII_DEBUG_PRINTF("ERROR: Char ROM missing (desc=%p)\n", (void *)g_mii.video.rom);
+        while(1);
     }
     
     // Reset the emulator - this sets reset flag and state to RUNNING
@@ -611,7 +580,7 @@ int main() {
 #endif
         .board_variant = board_num,
     };
-    mii_startscreen_show(&screen_info);
+//    mii_startscreen_show(&screen_info);
     
     // Let ROM boot naturally
     MII_DEBUG_PRINTF("Running ROM boot sequence (1M cycles)...\n");

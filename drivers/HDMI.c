@@ -23,26 +23,11 @@ int graphics_buffer_width = 320;
 int graphics_buffer_height = 240;
 int graphics_buffer_shift_x = 0;
 int graphics_buffer_shift_y = 0;
-enum graphics_mode_t hdmi_graphics_mode = 1;  // Use default/simple case
 
-static uint8_t *graphics_buffer = NULL;
-static volatile uint8_t *graphics_pending_buffer = NULL;
 static volatile uint32_t graphics_frame_count = 0;
-
-void graphics_set_buffer(uint8_t *buffer) {
-    graphics_buffer = buffer;
-}
-
-void graphics_request_buffer_swap(uint8_t *buffer) {
-    graphics_pending_buffer = buffer;
-}
 
 uint32_t hdmi_get_frame_count(void) {
     return graphics_frame_count;
-}
-
-uint8_t* graphics_get_buffer(void) {
-    return graphics_buffer;
 }
 
 uint32_t graphics_get_width(void) {
@@ -61,12 +46,6 @@ void graphics_set_res(int w, int h) {
 void graphics_set_shift(int x, int y) {
     graphics_buffer_shift_x = x;
     graphics_buffer_shift_y = y;
-}
-
-uint8_t* __not_in_flash_func(get_line_buffer)(int line) {
-    if (!graphics_buffer) return NULL;
-    if (line < 0 || line >= graphics_buffer_height) return NULL;
-    return graphics_buffer + line * graphics_buffer_width;
 }
 
 static struct video_mode_t video_mode[] = {
@@ -89,11 +68,6 @@ int __not_in_flash_func(get_video_mode)() {
 void __not_in_flash_func(vsync_handler)() {
     // Called from DMA IRQ at frame boundary.
     graphics_frame_count++;
-    uint8_t *pending = (uint8_t *)graphics_pending_buffer;
-    if (pending) {
-        graphics_buffer = pending;
-        graphics_pending_buffer = NULL;
-    }
 }
 
 // --- New HDMI Driver Code ---
@@ -140,6 +114,13 @@ alignas(4096) uint32_t conv_color[1224];
 //индекс, проверяющий зависание
 static uint32_t irq_inx = 0;
 static uint32_t last_check_irq = 0;
+
+#include "mii.h"
+#include "mii_sw.h"
+#include "mii_bank.h"
+#include "mii_rom.h"
+#include "mii_video.h"
+extern mii_t g_mii;
 
 // Debug function to get DMA IRQ count
 uint32_t hdmi_get_irq_count(void) {
@@ -305,7 +286,77 @@ static void pio_set_x(PIO pio, const int sm, uint32_t v) {
     pio_sm_exec(pio, sm, instr_mov);
 }
 
-static void __not_in_flash_func(dma_handler_HDMI)() {
+static uint8_t line_buffer[SCREEN_WIDTH] __aligned(4) __scratch_x("line_buffer");
+extern uint8_t mii_rom_iiee_video[4096];
+static volatile uint16_t base_addr;
+static uint8_t *main_mem;
+static uint8_t *aux_mem;
+static volatile int flash;
+
+static void __scratch_x("line_buffer") mii_video_render_text_line(uint32_t sw, int y) {
+    register uint8_t *out = line_buffer;
+    memset(out, 0, SCREEN_WIDTH);
+    y -= 24;
+    if (y < 0 || y >= 192) {
+        return;
+    }
+
+    register int row = y >> 3;           // 0..23
+    register int glyph_line = y & 7;     // 0..7 (какая строка внутри 8x8)
+
+    register bool altset = SWW_GETSTATE(sw, SWALTCHARSET);
+
+    // Apple II text memory is interleaved
+    register uint16_t line_addr = base_addr + (row & 7) * 0x80 + (row >> 3) * 0x28;
+    register uint8_t* rb = (uint8_t*)mii_rom_iiee_video;
+    if (!SWW_GETSTATE(sw, SW80COL)) {
+        // 40-column mode
+        for (register int x = 0; x < 40; x++) {
+            register uint8_t c = main_mem[line_addr + x];
+
+            // Flash handling
+            if (!altset && c >= 0x40 && c <= 0x7F)
+                c = (int)c + flash;
+
+            const register uint8_t *char_data = rb + (c << 3);
+
+            // Берём только одну строку глифа
+            register uint8_t bits = char_data[glyph_line];
+
+            // 7 пикселей + 1 padding 
+            *out++ = (bits & 0x01) ? 0 : 15;
+            *out++ = (bits & 0x02) ? 0 : 15;
+            *out++ = (bits & 0x04) ? 0 : 15;
+            *out++ = (bits & 0x08) ? 0 : 15;
+            *out++ = (bits & 0x10) ? 0 : 15;
+            *out++ = (bits & 0x20) ? 0 : 15;
+            *out++ = (bits & 0x40) ? 0 : 15;
+            *out++ = 0;  // 8th pixel padding
+        }
+    } else {
+        // 80-column mode
+        for (register int x = 0; x < 80; x++) {
+            register uint8_t c;
+            if (x & 1)
+                c = main_mem[line_addr + (x >> 1)];
+            else
+                c = aux_mem[line_addr + (x >> 1)];
+
+            if (!altset && c >= 0x40 && c <= 0x7F)
+                c = (int)c + flash;
+
+            const register uint8_t *char_data = rb + (c << 3);
+            register uint8_t bits = char_data[glyph_line];
+
+            *out++ = ((bits & 1) | ((bits >> 1) & 1)) ? 0 : 15;
+            *out++ = (((bits >> 2) & 1) | ((bits >> 3) & 1)) ? 0 : 15;
+            *out++ = (((bits >> 4) & 1) | ((bits >> 5) & 1)) ? 0 : 15;
+            *out++ = (((bits >> 6) & 1) | ((bits >> 7) & 1)) ? 0 : 15;
+        }
+    }
+}
+
+static void __scratch_x() dma_handler_HDMI() {
     static uint32_t inx_buf_dma;
     static uint line = 0;
     struct video_mode_t mode = graphics_get_video_mode(get_video_mode());
@@ -327,21 +378,24 @@ static void __not_in_flash_func(dma_handler_HDMI)() {
     uint8_t* activ_buf = (uint8_t *)dma_lines[inx_buf_dma & 1];
 
     if (line < mode.h_width ) {
-        uint8_t* output_buffer = activ_buf + 72; //для выравнивания синхры;
         int y = line >> 1;
-        
-        // Read from framebuffer and copy to output
-        uint8_t* input_buffer = get_line_buffer(y);
-        if (input_buffer) {
-            // Copy from framebuffer, substituting HDMI reserved colors
-            for (int i = 0; i < SCREEN_WIDTH; i++) {
-                uint8_t c = input_buffer[i];
-                if (c >= 240 && c <= 243) c = color_substitute[c - 240];
-                output_buffer[i] = c;
-            }
+
+        register uint32_t sw = g_mii.sw_state;
+        if (sw & M_SWTEXT) { // text_mode
+            mii_video_render_text_line(sw, y);
         } else {
-            // No buffer - fill with background color
-            memset(output_buffer, 0, SCREEN_WIDTH);
+// TODO: other modes
+    register uint8_t *out = line_buffer;
+    memset(out, 15, SCREEN_WIDTH);
+        }
+        
+        register uint8_t* output_buffer = activ_buf + 72; //для выравнивания синхры;
+        register uint8_t* input_buffer = line_buffer;
+        // Copy from framebuffer, substituting HDMI reserved colors
+        for (register int i = 0; i < SCREEN_WIDTH; i++) {
+            register uint8_t c = input_buffer[i];
+            if (c >= 240 && c <= 243) c = color_substitute[c - 240];
+            output_buffer[i] = c;
         }
         
         //ССИ
@@ -824,4 +878,71 @@ void graphics_rebind_irq_to_current_core(void) {
 
 void set_palette(uint8_t n) {
     // Stub
+}
+
+static void mii_video_prep_text40(uint32_t sw, mii_t* mii, mii_video_t *video) {
+//    const uint8_t *char_rom = video->rom ? video->rom->rom : NULL;
+//    if (!char_rom) {
+//        return;
+//    }
+
+    main_mem = mii->bank[MII_BANK_MAIN].mem;
+    aux_mem  = mii->bank[MII_BANK_AUX_BASE].mem;
+
+    bool page2  = SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
+    base_addr = 0x400 + (0x400 * page2);
+
+ //   if (video->rom && video->rom->len > (4 * 1024) && video->rom_bank)
+ //       rom_base = char_rom + (4 * 1024);
+ //   else
+ //       rom_base = char_rom;
+
+    flash = (video->frame_count & 0x10) ? -0x40 : 0x40;
+}
+
+void mii_video_prep_hdmi_frame() {
+    mii_t* mii = &g_mii;
+    mii_video_t *video = &mii->video;
+	
+	uint32_t sw = mii->sw_state;
+	bool text_mode = !!(sw & M_SWTEXT);
+	bool mixed = !!(sw & M_SWMIXED);
+	bool hires = !!(sw & M_SWHIRES);
+	bool page2 = SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
+	bool col80 = !!(sw & M_SW80COL);
+	bool dhires = !!(sw & M_SWDHIRES);
+	uint8_t an3_mode = video->an3_mode;
+	
+	if (text_mode) {
+		// Pure text mode
+		mii_video_prep_text40(sw, mii, video);
+	} else if (hires) {
+		// Hi-res graphics mode
+		// DHGR requires: HIRES=1, TEXT=0, DHIRES=1, and either 80COL=1 or an3_mode indicates DHGR
+		// an3_mode: 0=40col text/lores, 1=DHGR color, 2=DHGR mono, 3=80col text
+        /*
+		bool is_dhgr = dhires && (col80 || (an3_mode >= 1 && an3_mode <= 2));
+		if (is_dhgr) {
+			mii_video_render_dhires_rp2350(mii, hdmi_buffer, 320);
+		} else {
+			mii_video_render_hires_rp2350(mii, hdmi_buffer, 320);
+		}
+		if (mixed) {
+			// Mixed mode: render bottom 4 text lines (lines 160-191)
+			// This overlays text on top of the HGR screen
+			mii_video_render_text40_mixed_rp2350(mii, hdmi_buffer, 320);
+		}
+        */
+	} else {
+		// Lo-res graphics mode
+	//	mii_video_render_lores_rp2350(mii, hdmi_buffer, 320);
+	}
+	
+	// Draw floppy activity indicator in bottom border
+    /*
+	int motor_state = mii_disk2_get_motor_state();
+	if (motor_state > 0) {
+		mii_video_draw_floppy_indicator(hdmi_buffer, motor_state, mii->video.frame_count);
+	}
+    */
 }

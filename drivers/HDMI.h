@@ -52,10 +52,9 @@ enum graphics_mode_t {
 };
 
 void graphics_init(g_out g_out);
-void graphics_set_buffer(uint8_t *buffer);
-uint8_t* graphics_get_buffer(void);
-// Request a buffer swap at the next vsync (frame boundary).
-void graphics_request_buffer_swap(uint8_t *buffer);
+
+void mii_video_prep_hdmi_frame();
+
 // Returns a monotonically increasing frame counter (incremented on vsync).
 uint32_t hdmi_get_frame_count(void);
 // Returns the HDMI DMA IRQ count (for detecting stalls).
