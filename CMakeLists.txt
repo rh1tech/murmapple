@@ -6,13 +6,15 @@ else()
 endif()
 set(sdkVersion 2.2.0)
 set(toolchainVersion 14_2_Rel1)
-set(picotoolVersion 2.2.0-a4)
+set(picotoolVersion 2.2.0)
 set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
 if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
 cmake_minimum_required(VERSION 3.13)
+
+set(BUILD_NAME "murmapple")
 
 # Set board to Pico 2 (RP2350)
 set(PICO_BOARD pico CACHE STRING "Board type")
@@ -25,6 +27,9 @@ set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 #set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
+
+# MOS2 support (generate .m1p2 or m2p2 instead of .uf2)
+#set(MOS2 "ON")
 
 # CPU voltage selection based on speed
 if(CPU_SPEED GREATER_EQUAL 504)
@@ -70,7 +75,25 @@ if(EXISTS ${PICO_EXTRAS_PATH}/external/pico_extras_import.cmake)
     include(${PICO_EXTRAS_PATH}/external/pico_extras_import.cmake)
 endif()
 
-project(murmapple C CXX ASM)
+set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
+
+if (MOS2)
+    IF(BOARD_VARIANT STREQUAL "M2")
+        SET(BUILD_NAME "${BUILD_NAME}.m2p2")
+# TODO: support later
+#    ELSEIF(PICO_PC)
+#        SET(BUILD_NAME "${BUILD_NAME}.PCp2")
+#    ELSEIF(PICO_DV)
+#        SET(BUILD_NAME "${BUILD_NAME}.DVp2")
+#    ELSEIF(ZERO2)
+#        SET(BUILD_NAME "${BUILD_NAME}.z0p2")
+    ELSE()
+        SET(BUILD_NAME "${BUILD_NAME}.m1p2")
+    ENDIF()
+endif ()
+
+project(${BUILD_NAME} C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
@@ -109,10 +132,8 @@ target_compile_definitions(drivers PRIVATE
     BOARD_${BOARD_VARIANT}
 )
 
-target_link_libraries(drivers pico_stdlib hardware_dma hardware_pio hardware_spi)
-
 # Apple IIe Emulator sources
-add_executable(murmapple
+add_executable(${BUILD_NAME}
     src/main.c
     src/mii_65c02.c
     src/mii_bank.c
@@ -144,19 +165,28 @@ add_executable(murmapple
 if (PICO_BOARD STREQUAL "pico")
     pico_define_boot_stage2(slower_boot2 ${PICO_DEFAULT_BOOT_STAGE2_FILE})
     target_compile_definitions(slower_boot2 PRIVATE PICO_FLASH_SPI_CLKDIV=4)
-    pico_set_boot_stage2(murmapple slower_boot2)
+    pico_set_boot_stage2(${BUILD_NAME} slower_boot2)
+    unset(MOS2)
 else() # RP2350 ASM-file:
-    add_executable(murmapple
+    add_executable(${BUILD_NAME}
         src/mii_disk2_lss_asm.S
     )
+    # MOS2 support:
+    if (MOS2)
+        pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.mos2.ld")
+    else ()
+        pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.ld")
+    endif ()
 endif()
 
-target_include_directories(murmapple PRIVATE
+target_link_libraries(drivers pico_stdlib hardware_dma hardware_pio hardware_spi)
+
+target_include_directories(${BUILD_NAME} PRIVATE
     src
     drivers
 )
 
-target_compile_definitions(murmapple PRIVATE
+target_compile_definitions(${BUILD_NAME} PRIVATE
     BOARD_${BOARD_VARIANT}
     CPU_CLOCK_MHZ=${CPU_SPEED}
     CPU_VOLTAGE=${CPU_VOLTAGE}
@@ -175,15 +205,15 @@ target_compile_definitions(murmapple PRIVATE
 )
 
 if(PS2_KEYBOARD_ENABLED)
-    target_compile_definitions(murmapple PRIVATE ENABLE_PS2_KEYBOARD=1)
+    target_compile_definitions(${BUILD_NAME} PRIVATE ENABLE_PS2_KEYBOARD=1)
 else()
-    target_compile_definitions(murmapple PRIVATE ENABLE_PS2_KEYBOARD=0)
+    target_compile_definitions(${BUILD_NAME} PRIVATE ENABLE_PS2_KEYBOARD=0)
 endif()
 
 if(DEBUG_LOGS_ENABLED)
-    target_compile_definitions(murmapple PRIVATE ENABLE_DEBUG_LOGS=1)
+    target_compile_definitions(${BUILD_NAME} PRIVATE ENABLE_DEBUG_LOGS=1)
 else()
-    target_compile_definitions(murmapple PRIVATE ENABLE_DEBUG_LOGS=0)
+    target_compile_definitions(${BUILD_NAME} PRIVATE ENABLE_DEBUG_LOGS=0)
 endif()
 
 # Optimization for maximum performance on RP2350
@@ -192,14 +222,14 @@ endif()
 # -flto: Link-time optimization for cross-file inlining
 # -fno-strict-aliasing: Allow type punning (common in emulators)
 # -march=armv8-m.main+fp+dsp: Target Cortex-M33 architecture
-target_compile_options(murmapple PRIVATE 
+target_compile_options(${BUILD_NAME} PRIVATE 
     -O3 
     -ffunction-sections 
     -fdata-sections
     -fno-strict-aliasing
 )
 
-target_link_libraries(murmapple
+target_link_libraries(${BUILD_NAME}
     pico_stdlib
     pico_multicore
     pico_audio_i2s
@@ -215,20 +245,29 @@ target_link_libraries(murmapple
 )
 
 if(USB_HID_ENABLED)
-    target_link_libraries(murmapple usbhid)
+    target_link_libraries(${BUILD_NAME} usbhid)
 endif()
 
 # USB CDC stdio: enabled for debugging, but disabled when USB HID is enabled
 # (USB port can only be Host OR Device, not both)
 if(USB_HID_ENABLED)
-    pico_enable_stdio_usb(murmapple 0)
+    pico_enable_stdio_usb(${BUILD_NAME} 0)
     message(STATUS "USB CDC stdio disabled (USB HID Host is enabled)")
 else()
-    pico_enable_stdio_usb(murmapple 1)
+    pico_enable_stdio_usb(${BUILD_NAME} 1)
 endif()
-pico_enable_stdio_uart(murmapple 1)
+pico_enable_stdio_uart(${BUILD_NAME} 1)
 
 # Create UF2 output
-pico_add_extra_outputs(murmapple)
+pico_add_extra_outputs(${BUILD_NAME})
 
-target_link_options(murmapple PRIVATE -Xlinker --print-memory-usage --data-sections)
+target_link_options(${BUILD_NAME} PRIVATE -Xlinker --print-memory-usage --data-sections)
+
+# MOS2 support:
+if (MOS2)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E rename
+        "${OUTPUT_DIR}/${BUILD_NAME}.uf2"
+        "${OUTPUT_DIR}/${BUILD_NAME}"
+    )
+endif ()
