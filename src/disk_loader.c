@@ -24,7 +24,14 @@
 #include "debug_log.h"
 
 // Global state
-disk_entry_t g_disk_list[MAX_DISK_IMAGES];
+extern uint8_t mii_ram[0x20000];
+/// mii_ram[0x20000] - (320*240 = 76800 B) = 54272 B
+// sizeof(disk_entry_t) = 72 B
+// 54272 / 72 = 753 -> MAX_DISK_IMAGES
+// replaces
+// disk_entry_t g_disk_list[MAX_DISK_IMAGES];
+// to reduce RAM usage
+disk_entry_t* g_disk_list = (disk_entry_t*)(mii_ram + 76800);
 int g_disk_count = 0;
 loaded_disk_t g_loaded_disks[2] = {0};
 
@@ -40,13 +47,16 @@ static bool sd_mounted = false;
 #define htole16(x) (x)
 #endif
 
+// reduce stack usage, by global variables
+FIL fp;
+char path[128];
+
 static bool disk_open_image_file(const char *filename, FIL *out_fp, char *out_path, size_t out_path_len) {
     if (!sd_mounted)
         return false;
     if (!filename || !out_fp)
         return false;
 
-    char path[128];
     snprintf(path, sizeof(path), "/apple/%s", filename);
     FRESULT fr = f_open(out_fp, path, FA_READ);
     if (fr != FR_OK) {
@@ -535,6 +545,7 @@ fail:
     return -1;
 }
 
+#if HACK_DEBUG
 void logMsg(char* msg) {
     static FIL fileD;
     f_open(&fileD, "/apple.log", FA_WRITE | FA_OPEN_APPEND);
@@ -542,6 +553,7 @@ void logMsg(char* msg) {
     f_write(&fileD, msg, strlen(msg), &bw);
     f_close(&fileD);
 }
+#endif
 
 // Get disk type from filename extension
 disk_type_t disk_get_type(const char *filename) {
@@ -583,11 +595,6 @@ int disk_loader_init(void) {
     
     sd_mounted = true;
     printf("SD card mounted successfully\n");
-    
-    // Scan for disk images
-    int count = disk_scan_directory();
-    printf("Found %d disk images\n", count);
-    
     return 0;
 }
 
@@ -662,8 +669,6 @@ int disk_load_image(int drive, int index) {
     memset(disk, 0, sizeof(*disk));
 
     // Validate the file exists by opening it, then close immediately.
-    FIL fp;
-    char path[128];
     if (!disk_open_image_file(entry->filename, &fp, path, sizeof(path))) {
         printf("Failed to open image for %s\n", entry->filename);
         return -1;
@@ -726,9 +731,6 @@ static uint8_t disk_type_to_mii_format(disk_type_t type, const char *filename) {
 
 // Static mii_dd_file_t structures for the two drives
 static mii_dd_file_t g_dd_files[2] = {0};
-// reduce stack usage, by global variables
-static FIL fp;
-static char path[128];
 
 // Mount a loaded disk image to the emulator
 // preserve_state: if true, keeps motor/head position for disk swap during game

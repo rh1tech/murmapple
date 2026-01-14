@@ -12,6 +12,7 @@
 #include "hardware/clocks.h"
 #include "hardware/irq.h"
 #include "pico/platform.h"
+#include "disk_ui.h"
 
 // Flag to defer IRQ handler setup to Core 1
 // When true, hdmi_init() will NOT set the IRQ handler - Core 1 must call
@@ -288,12 +289,13 @@ static void pio_set_x(PIO pio, const int sm, uint32_t v) {
 
 static uint8_t line_buffer[SCREEN_WIDTH] __aligned(4) __scratch_x("line_buffer");
 extern uint8_t mii_rom_iiee_video[4096];
+extern uint8_t mii_ram[0x20000];
 static volatile uint16_t base_addr;
 static uint8_t *main_mem;
 static uint8_t *aux_mem;
 static volatile int flash;
 
-static void __scratch_x("line_buffer") mii_video_render_text_line(uint32_t sw, int y) {
+static void __scratch_x() mii_video_render_text_line(uint32_t sw, int y) {
     register uint8_t *out = line_buffer;
     memset(out, 0, SCREEN_WIDTH);
     y -= 24;
@@ -379,18 +381,22 @@ static void __scratch_x() dma_handler_HDMI() {
 
     if (line < mode.h_width ) {
         int y = line >> 1;
-
-        register uint32_t sw = g_mii.sw_state;
-        if (sw & M_SWTEXT) { // text_mode
-            mii_video_render_text_line(sw, y);
+        register uint8_t* input_buffer;
+        if (disk_ui_is_visible()) {
+            input_buffer = mii_ram + y * SCREEN_WIDTH;
         } else {
-// TODO: other modes
-    register uint8_t *out = line_buffer;
-    memset(out, 15, SCREEN_WIDTH);
+            register uint32_t sw = g_mii.sw_state;
+            if (sw & M_SWTEXT) { // text_mode
+                mii_video_render_text_line(sw, y);
+            } else {
+    // TODO: other modes
+                register uint8_t *out = line_buffer;
+                memset(out, 15, SCREEN_WIDTH);
+            }
+            input_buffer = line_buffer;
         }
-        
+       
         register uint8_t* output_buffer = activ_buf + 72; //для выравнивания синхры;
-        register uint8_t* input_buffer = line_buffer;
         // Copy from framebuffer, substituting HDMI reserved colors
         for (register int i = 0; i < SCREEN_WIDTH; i++) {
             register uint8_t c = input_buffer[i];

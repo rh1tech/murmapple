@@ -5,6 +5,8 @@
  * Features inverted title bar, compact 6x8 font, proper selection highlighting
  */
 
+#include <pico.h>
+#include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include "disk_ui.h"
@@ -284,8 +286,28 @@ void disk_ui_init_with_emulator(mii_t *mii, int disk2_slot) {
     MII_DEBUG_PRINTF("Disk UI initialized with mii=%p, slot=%d\n", mii, disk2_slot);
 }
 
+#include "ff.h"
+extern uint8_t mii_ram[0x20000];
+extern FIL fp;
+
 void disk_ui_show(void) {
     if (ui_state == DISK_UI_HIDDEN) {
+        { // TODO: error handling
+            gpio_put(PICO_DEFAULT_LED_PIN, true);
+            f_open(&fp, "/tmp/apple.snap", FA_CREATE_ALWAYS | FA_WRITE);
+            UINT wb;
+            f_write(&fp, mii_ram, sizeof(mii_ram), &wb);
+            f_close(&fp);
+            gpio_put(PICO_DEFAULT_LED_PIN, false);
+        }
+        memset(mii_ram, 0, sizeof(mii_ram));
+
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+        // Scan for disk images
+        int count = disk_scan_directory();
+        printf("Found %d disk images\n", count);
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+
         ui_state = DISK_UI_SELECT_DRIVE;
         selected_drive = 0;
         ui_dirty = true;
@@ -295,6 +317,15 @@ void disk_ui_show(void) {
 }
 
 void disk_ui_hide(void) {
+    { // TODO: error handling
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+        if (FR_OK == f_open(&fp, "/tmp/apple.snap", FA_READ)) {
+            UINT rb;
+            f_read(&fp, mii_ram, sizeof(mii_ram), &rb);
+            f_close(&fp);
+        }
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+    }
     ui_state = DISK_UI_HIDDEN;
     ui_rendered = false;
     ui_dirty = false;
@@ -310,7 +341,7 @@ void disk_ui_toggle(void) {
     }
 }
 
-bool disk_ui_is_visible(void) {
+bool __scratch_x() disk_ui_is_visible(void) {
     return ui_state != DISK_UI_HIDDEN;
 }
 
@@ -331,6 +362,7 @@ void disk_ui_show_loading(void) {
 
 // Handle loading complete - mount disk and perform action
 static void handle_disk_loaded(void) {
+    disk_ui_hide();
     if (g_mii) {
         int preserve_state = (selected_action == 1) ? 1 : 0;  // INSERT preserves state
         if (disk_mount_to_emulator(selected_drive, g_mii, g_disk2_slot, preserve_state) == 0) {
@@ -365,7 +397,6 @@ static void handle_disk_loaded(void) {
     } else {
         MII_DEBUG_PRINTF("Disk UI: warning - no emulator reference, disk not mounted\n");
     }
-    disk_ui_hide();
 }
 
 bool disk_ui_handle_key(uint8_t key) {

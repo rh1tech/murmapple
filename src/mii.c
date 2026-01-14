@@ -683,8 +683,9 @@ static const unsigned __int128 _mii_ramworks3_config[] = {
 
 #if MII_RP2350
 // Static memory arrays for RP2350 (no malloc/realloc)
-static uint8_t rp2350_main_mem[0x10000];  // 64KB main memory
-static uint8_t rp2350_aux_mem[0x10000];   // 64KB aux memory (full Apple IIe aux)
+uint8_t mii_ram[0x20000] __aligned(4096);  // 64+64KB memory
+static uint8_t* rp2350_main_mem = mii_ram;  // 64KB main memory
+static uint8_t* rp2350_aux_mem = mii_ram + 0x10000;   // 64KB aux memory (full Apple IIe aux)
 static uint8_t rp2350_sw_mem[256];        // Soft switch area
 static uint8_t rp2350_card_rom[0x0F00];   // Card ROM area ($C100-$CFFF = 15 pages)
 

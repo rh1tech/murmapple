@@ -278,6 +278,8 @@ void clear_held_key(void) {
 // Flag to indicate emulator is ready
 static volatile bool g_emulator_ready = false;
 
+extern uint8_t mii_ram[0x20000];
+
 // Core 1 - Video rendering loop
 static void core1_main(void) {
     MII_DEBUG_PRINTF("Core 1: Waiting for emulator ready...\n");
@@ -289,22 +291,20 @@ static void core1_main(void) {
     
     MII_DEBUG_PRINTF("Core 1: Starting video rendering\n");
     
-  //  bool was_ui_visible = false;
     uint32_t last_frame = hdmi_get_frame_count();
     
     while (1) {
         sleep_ms(16);
         
         // Check if disk UI is visible
-   //     bool ui_visible = disk_ui_is_visible();
+        bool ui_visible = disk_ui_is_visible();
         
         // Always render into the back buffer, then request a swap on vsync.
-    //    if (ui_visible) {
-///            disk_ui_render(g_hdmi_back_buffer, HDMI_WIDTH, HDMI_HEIGHT);
-    //    } else {
-///            mii_video_scale_to_hdmi(&g_mii.video, g_hdmi_back_buffer);
+        if (ui_visible) {
+            disk_ui_render(mii_ram, HDMI_WIDTH, HDMI_HEIGHT);
+        } else {
             mii_video_prep_hdmi_frame();
-    //    }
+        }
 
         // Wait until the swap has actually happened (vsync tick), then rotate buffers.
         // This avoids writing into the buffer currently being scanned out.
@@ -315,7 +315,6 @@ static void core1_main(void) {
             sleep_ms(1);
         } while (1);
         last_frame = f;
-    //    was_ui_visible = ui_visible;
     }
 }
 
@@ -412,7 +411,11 @@ int main() {
 
     MII_DEBUG_PRINTF("\n\n");
     MII_DEBUG_PRINTF("=================================\n");
+#if PICO_RP2040
+    MII_DEBUG_PRINTF("  MurmApple - Apple IIe on RP2040\n");
+#else
     MII_DEBUG_PRINTF("  MurmApple - Apple IIe on RP2350\n");
+#endif
     MII_DEBUG_PRINTF("=================================\n");
     MII_DEBUG_PRINTF("System Clock: %lu MHz\n", clock_get_hz(clk_sys) / 1000000);
     
@@ -443,8 +446,6 @@ int main() {
     // Initialize HDMI graphics (starts DMA/IRQs)
     MII_DEBUG_PRINTF("Initializing HDMI...\n");
     graphics_init(g_out_HDMI);
-    MII_DEBUG_PRINTF("HDMI buffer at %p (%lux%lu)\n", 
-            graphics_get_buffer(), graphics_get_width(), graphics_get_height());
     
     // Initialize palette
     init_palette();

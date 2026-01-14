@@ -13,9 +13,8 @@
 #include <stdbool.h>
 
 // Maximum number of disk images we can list
-// 500 == 36000
-//#define MAX_DISK_IMAGES 500
-#define MAX_DISK_IMAGES 10
+//#define MAX_DISK_IMAGES 753
+#define MAX_DISK_IMAGES 30
 
 // Maximum filename length
 #define MAX_FILENAME_LEN 64
@@ -50,7 +49,7 @@ typedef struct {
 } loaded_disk_t;
 
 // Global state
-extern disk_entry_t g_disk_list[MAX_DISK_IMAGES];
+extern disk_entry_t* g_disk_list; // MAX_DISK_IMAGES;
 extern int g_disk_count;
 extern loaded_disk_t g_loaded_disks[2];  // Drive 1 and Drive 2
 
