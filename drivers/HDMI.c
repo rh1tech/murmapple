@@ -290,10 +290,11 @@ static void pio_set_x(PIO pio, const int sm, uint32_t v) {
 static uint8_t line_buffer[SCREEN_WIDTH] __aligned(4) __scratch_x("line_buffer");
 extern uint8_t mii_rom_iiee_video[4096];
 extern uint8_t mii_ram[0x20000];
-static volatile uint16_t base_addr;
+static uint16_t base_addr;
 static uint8_t *main_mem;
 static uint8_t *aux_mem;
-static volatile int flash;
+static int flash;
+static bool is_dhgr;
 
 static void __scratch_x() mii_video_render_text_line(uint32_t sw, int y) {
     register uint8_t *out = line_buffer;
@@ -388,10 +389,23 @@ static void __scratch_x() dma_handler_HDMI() {
             register uint32_t sw = g_mii.sw_state;
             if (sw & M_SWTEXT) { // text_mode
                 mii_video_render_text_line(sw, y);
+            } else if (sw & M_SWHIRES) { // hi res
+                // Hi-res graphics mode
+                // DHGR requires: HIRES=1, TEXT=0, DHIRES=1, and either 80COL=1 or an3_mode indicates DHGR
+                // an3_mode: 0=40col text/lores, 1=DHGR color, 2=DHGR mono, 3=80col text
+                if (is_dhgr) {
+            //        mii_video_render_dhires_rp2350(mii, hdmi_buffer, 320);
+                } else {
+            //        mii_video_render_hires_rp2350(mii, hdmi_buffer, 320);
+                }
+                if (sw & M_SWMIXED) {
+                    // Mixed mode: render bottom 4 text lines (lines 160-191)
+                    // This overlays text on top of the HGR screen
+            //        mii_video_render_text40_mixed_rp2350(mii, hdmi_buffer, 320);
+                }
             } else {
-    // TODO: other modes
-                register uint8_t *out = line_buffer;
-                memset(out, 15, SCREEN_WIDTH);
+                // Lo-res graphics mode
+            //    mii_video_render_lores_rp2350(mii, hdmi_buffer, 320);
             }
             input_buffer = line_buffer;
         }
@@ -917,7 +931,7 @@ void mii_video_prep_hdmi_frame() {
 	bool page2 = SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
 	bool col80 = !!(sw & M_SW80COL);
 	bool dhires = !!(sw & M_SWDHIRES);
-	uint8_t an3_mode = video->an3_mode;
+	bool an3_mode = video->an3_mode == 1 || video->an3_mode == 2;
 	
 	if (text_mode) {
 		// Pure text mode
@@ -926,8 +940,8 @@ void mii_video_prep_hdmi_frame() {
 		// Hi-res graphics mode
 		// DHGR requires: HIRES=1, TEXT=0, DHIRES=1, and either 80COL=1 or an3_mode indicates DHGR
 		// an3_mode: 0=40col text/lores, 1=DHGR color, 2=DHGR mono, 3=80col text
+		is_dhgr = dhires && (col80 || an3_mode);
         /*
-		bool is_dhgr = dhires && (col80 || (an3_mode >= 1 && an3_mode <= 2));
 		if (is_dhgr) {
 			mii_video_render_dhires_rp2350(mii, hdmi_buffer, 320);
 		} else {
