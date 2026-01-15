@@ -296,10 +296,12 @@ static uint8_t *aux_mem;
 static int flash;
 static bool is_dhgr;
 static bool color;
-static uint8_t dhires_c[16] __aligned(4) __scratch_x("dhires");
+static uint8_t dhires_c[16] __aligned(4) __scratch_y("dhires");
+// Color: build a bit buffer for 80 bytes (AUX/MAIN interleaved)
+static uint8_t bits[71] __aligned(4) __scratch_y("bits");
 
-static void __scratch_x() mii_video_render_text_line(uint32_t sw, int y) {
-    register uint8_t *out = line_buffer;
+static void __not_in_flash() mii_video_render_text_line(uint32_t sw, int y) {
+    uint8_t* __restrict out = line_buffer;
     memset(out, 0, SCREEN_WIDTH);
     y -= 24;
     if ((unsigned)y >= 192) {
@@ -361,8 +363,66 @@ static void __scratch_x() mii_video_render_text_line(uint32_t sw, int y) {
     }
 }
 
-static void __scratch_x() mii_video_render_hires_line(int line) {
-    register uint8_t *out = line_buffer;
+/* --- inline helpers --- */
+static inline uint8_t ror4(uint8_t v, uint8_t r)
+{
+    return (uint8_t)(((v >> r) | (v << (4 - r))) & 0x0F);
+}
+
+static inline
+uint8_t get_next_bit(
+        const uint8_t **p,
+        uint8_t *bit)
+{
+    uint8_t v = (uint8_t)((**p >> (7 - *bit)) & 1);
+    if (++(*bit) == 8) {
+        *bit = 0;
+        (*p)++;
+    }
+    return v;
+}
+
+/* --- рендер одной dhires-строки --- */
+static inline
+void render_dhires_line(void)
+{
+    uint8_t * __restrict out = line_buffer;
+
+    const uint8_t *p = bits;
+    uint8_t bit = 0;
+
+    /* 8-битное окно */
+    uint8_t win = 0;
+    win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+    win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+    win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+    win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+    win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+    win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+    win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+    win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+
+    /* i0 = 0 → d0 = 2 → m0 = 2 */
+    uint8_t m = 2;
+
+    for (int x = 0; x < 320; x++) {
+        uint8_t pixel = ror4((uint8_t)(win >> 4), m);
+        *out++ = dhires_c[pixel];
+
+        /* Δi: 1,2,2,2 */
+        if ((x & 3) == 0) {
+            win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+            m = (uint8_t)((m + 1) & 3);
+        } else {
+            win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+            win = (uint8_t)((win << 1) | get_next_bit(&p, &bit));
+            m = (uint8_t)((m + 2) & 3);
+        }
+    }
+}
+
+static void __not_in_flash() mii_video_render_hires_line(int line) {
+    uint8_t* __restrict out = line_buffer;
     memset(out, 0, SCREEN_WIDTH);
     line -= 24;
     if ((unsigned)line >= 192) {
@@ -373,7 +433,7 @@ static void __scratch_x() mii_video_render_hires_line(int line) {
         // Mono: combine MAIN/AUX 7-bit streams into 14-bit pixels (560 wide)
         // Cache column data to avoid repeated memory lookups
         register int8_t last_col = -1;
-        uint32_t ext = 0;
+        register uint32_t ext = 0;
         for (register int x = 0; x < 320; x++) {
             register int src = (x * 7) >> 2; // 0..559
             register int8_t col = src / 14;    // 0..39
@@ -386,34 +446,68 @@ static void __scratch_x() mii_video_render_hires_line(int line) {
         }
         return;
     }
-    // Color: build a bit buffer for 80 bytes (AUX/MAIN interleaved)
-    uint8_t bits[71] = {0};
-    for (register int x = 0; x < 80; x++) {
-        register uint8_t b = (x & 1) ? main_mem[line_addr + (x >> 1)] : aux_mem[line_addr + (x >> 1)];
-        for (register int i = 0; i < 7; i++) {
-            register int out_index = 2 + (x * 7) + i;
-            bits[out_index >> 3] |= ((b >> i) & 1) << (7 - (out_index & 7));
+
+    /* -------------------- AUX (чётные x) -------------------- */
+    {
+        register uint8_t *src = aux_mem + line_addr;
+
+        register uint8_t *dst = bits + (2 >> 3);
+        register int8_t bit = 7 - (2 & 7);
+
+        for (register int k = 0; k < 40; k++) {
+            register uint8_t b = *src++;
+
+            /* 7 бит, развёртка */
+            *dst |= ((b >> 0) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 1) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 2) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 3) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 4) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 5) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 6) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+
+            /* пропуск 7 бит (место для main) */
+            bit -= 7;
+            while (bit < 0) {
+                bit += 8;
+                dst++;
+            }
         }
     }
 
-    for (register int x = 0; x < 320; x++) {
-        register int i = (x * 7) >> 2; // 0..559
-        register int d = 2 + i;
-        register uint8_t pixel =
-            (_mii_get_1bits_rp2350(bits, i + 3) << (3 - ((d + 3) & 3))) +
-            (_mii_get_1bits_rp2350(bits, i + 2) << (3 - ((d + 2) & 3))) +
-            (_mii_get_1bits_rp2350(bits, i + 1) << (3 - ((d + 1) & 3))) +
-            (_mii_get_1bits_rp2350(bits, i)     << (3 - (d & 3)));
-        out[x] = dhires_c[pixel & 0x0f];
-    }
+    /* -------------------- MAIN (нечётные x) -------------------- */
+    {
+        register uint8_t *src = main_mem + line_addr;
 
+        register uint8_t *dst = bits + ((2 + 7) >> 3);
+        register int8_t bit = 7 - ((2 + 7) & 7);
+
+        for (register int k = 0; k < 40; k++) {
+            register uint8_t b = *src++;
+
+            *dst |= ((b >> 0) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 1) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 2) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 3) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 4) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 5) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+            *dst |= ((b >> 6) & 1) << bit; if (--bit < 0) { bit = 7; dst++; }
+
+            bit -= 7;
+            while (bit < 0) {
+                bit += 8;
+                dst++;
+            }
+        }
+    }
+    render_dhires_line();
 }
 
 
-static void __scratch_x() dma_handler_HDMI() {
+static void __not_in_flash() dma_handler_HDMI() {
     static uint32_t inx_buf_dma;
     static uint line = 0;
-    struct video_mode_t mode = graphics_get_video_mode(get_video_mode());
+    struct video_mode_t mode = video_mode[0];
     irq_inx++;
 
     dma_hw->ints0 = 1u << dma_chan_ctrl;

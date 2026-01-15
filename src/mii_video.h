@@ -157,7 +157,7 @@ _mii_get_1bits_rp2350(
 		const uint8_t *buffer,
 		int bit)
 {
-	return (buffer[bit >> 3] >> (7 - (bit & 3))) & 1;
+	return (buffer[bit >> 3] >> (7 - (bit & 7))) & 1;
 }
 
 extern const mii_video_clut_t mii_base_clut;
