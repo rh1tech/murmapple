@@ -10,6 +10,18 @@
 
 #include <stdint.h>
 
+#if HACK_DEBUG
+#include <stdio.h>
+#undef printf
+extern void logMsg(char* msg);
+#define printf(...) \
+    do { \
+        char tmp[80]; \
+        snprintf(tmp, sizeof tmp, __VA_ARGS__); \
+        logMsg(tmp); \
+    } while (0)
+#endif
+
 struct mii_dd_t;
 
 enum {
@@ -30,12 +42,7 @@ typedef struct mii_dd_file_t {
 	char * 			pathname;
 	uint8_t 		format;
 	uint8_t 		read_only;
-	uint8_t * 		start; 	// start of the file
-	uint8_t * 		map;	// start of the blocks
-
-	int 			fd;	// if fd >= 0, map is mmaped, otherwise it's malloced
 	uint32_t 		size;
-	struct mii_dd_t * dd;
 } mii_dd_file_t;
 
 /*

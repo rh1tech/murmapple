@@ -6,11 +6,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pico.h>
+#include <hardware/pwm.h>
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "hardware/vreg.h"
 #include "hardware/clocks.h"
+#if PICO_RP2350
 #include "hardware/structs/qmi.h"
+#endif
 #include "hardware/dma.h"  // Include DMA header early before mii_sw.h
 
 #include "board_config.h"
@@ -44,12 +48,17 @@
 
 void mii_speaker_click(mii_speaker_t *speaker) {
     (void)speaker;
-#ifdef FEATURE_AUDIO
+#ifdef FEATURE_AUDIO_I2S
     // Forward speaker clicks to I2S audio driver
     extern mii_t g_mii;
     if (mii_audio_i2s_is_init()) {
         mii_audio_speaker_click(g_mii.cpu.total_cycle);
     }
+#endif
+#ifdef FEATURE_AUDIO_PWM
+    static bool state = true;
+    pwm_set_gpio_level(BEEPER_PIN, state ? ((1 << 12) - 1) : 0);
+    state = !state;
 #endif
 }
 
@@ -60,8 +69,8 @@ int mii_cpu_disasm_one(char *buf, size_t buflen, mii_cpu_t *cpu,
 }
 
 // External ROM data (from ROM files)
-extern const uint8_t mii_rom_iiee[];
-extern const uint8_t mii_rom_iiee_video[];
+extern const uint8_t mii_rom_iiee[16384];
+extern uint8_t mii_rom_iiee_video[4096];
 
 // HDMI framebuffer dimensions (driver line-doubles to 640x480)
 #undef HDMI_WIDTH
@@ -69,9 +78,11 @@ extern const uint8_t mii_rom_iiee_video[];
 #define HDMI_WIDTH 320
 #define HDMI_HEIGHT 240
 
+#if PSRAM_MAX_FREQ_MHZ
 // PSRAM interface
 extern void psram_init(uint cs_pin);
 extern void psram_set_sram_mode(int enable);
+#endif
 
 // PS/2 keyboard interface
 #ifndef ENABLE_PS2_KEYBOARD
@@ -100,6 +111,7 @@ extern bool ps2kbd_is_reset_combo(void);  // Ctrl+Alt+Delete pressed
 // USB HID keyboard/gamepad interface
 #include "usbhid/usbhid_wrapper.h"
 
+#if PICO_RP2350
 // Flash timing configuration for overclocking
 #define FLASH_MAX_FREQ_MHZ 88
 
@@ -121,13 +133,10 @@ static void __no_inline_not_in_flash_func(set_flash_timings)(int cpu_mhz) {
                         rxdelay << QMI_M0_TIMING_RXDELAY_LSB |
                         divisor << QMI_M0_TIMING_CLKDIV_LSB;
 }
+#endif
 
 // Global emulator state (non-static for access from mii_speaker_click stub)
 mii_t g_mii;
-
-// HDMI framebuffer
-static uint8_t *g_hdmi_front_buffer = NULL;
-static uint8_t *g_hdmi_back_buffer = NULL;
 
 // Apple II color palette (RGB888)
 static const uint32_t apple2_rgb888[16] = {
@@ -275,6 +284,7 @@ void clear_held_key(void) {
 
 // Flag to indicate emulator is ready
 static volatile bool g_emulator_ready = false;
+bool volatile vram_locked = true;
 
 // Core 1 - Video rendering loop
 static void core1_main(void) {
@@ -284,10 +294,10 @@ static void core1_main(void) {
     while (!g_emulator_ready) {
         sleep_ms(10);
     }
+	__dmb();          // Data Memory Barrier
     
     MII_DEBUG_PRINTF("Core 1: Starting video rendering\n");
     
-    bool was_ui_visible = false;
     uint32_t last_frame = hdmi_get_frame_count();
     
     while (1) {
@@ -298,18 +308,12 @@ static void core1_main(void) {
         
         // Always render into the back buffer, then request a swap on vsync.
         if (ui_visible) {
-            // When the UI first becomes visible, seed the back buffer from the
-            // current front buffer so the modal draws over a stable background.
-            if (!was_ui_visible) {
-                memcpy(g_hdmi_back_buffer, g_hdmi_front_buffer, HDMI_WIDTH * HDMI_HEIGHT);
-            }
-            disk_ui_render(g_hdmi_back_buffer, HDMI_WIDTH, HDMI_HEIGHT);
+            disk_ui_render(graphics_get_buffer(), HDMI_WIDTH, HDMI_HEIGHT);
         } else {
-            mii_video_render(&g_mii);
-            mii_video_scale_to_hdmi(&g_mii.video, g_hdmi_back_buffer);
+        	__dmb();          // Data Memory Barrier
+        //    if (!vram_locked)
+                mii_video_scale_to_hdmi(&g_mii.video, graphics_get_buffer());
         }
-
-        graphics_request_buffer_swap(g_hdmi_back_buffer);
 
         // Wait until the swap has actually happened (vsync tick), then rotate buffers.
         // This avoids writing into the buffer currently being scanned out.
@@ -320,11 +324,6 @@ static void core1_main(void) {
             sleep_ms(1);
         } while (1);
         last_frame = f;
-        uint8_t *tmp = g_hdmi_front_buffer;
-        g_hdmi_front_buffer = g_hdmi_back_buffer;
-        g_hdmi_back_buffer = tmp;
-        
-        was_ui_visible = ui_visible;
     }
 }
 
@@ -348,16 +347,10 @@ static mii_rom_t main_rom_struct = {
 
 // Load ROM into memory bank and register with ROM system
 static void load_rom(mii_t *mii, const uint8_t *rom, size_t len, uint16_t addr) {
-    mii_bank_t *rom_bank = &mii->bank[MII_BANK_ROM];
-    for (size_t i = 0; i < len; i++) {
-        rom_bank->mem[rom_bank->mem_offset + addr - rom_bank->base + i] = rom[i];
-    }
-    
     // Register with the ROM system so mii_rom_get("iiee") works
     main_rom_struct.rom = rom;
     main_rom_struct.len = len;
     mii_rom_register(&main_rom_struct);
-    
     MII_DEBUG_PRINTF("Loaded %zu bytes ROM at $%04X\n", len, addr);
 }
 
@@ -387,29 +380,62 @@ static void load_char_rom(mii_t *mii, const uint8_t *rom, size_t len) {
     }
 }
 
+static void PWM_init_pin(uint8_t pinN, uint16_t max_lvl) {
+    pwm_config config = pwm_get_default_config();
+    gpio_set_function(pinN, GPIO_FUNC_PWM);
+    pwm_config_set_clkdiv(&config, 1.0);
+    pwm_config_set_wrap(&config, max_lvl); // MAX PWM value
+    pwm_init(pwm_gpio_to_slice_num(pinN), &config, true);
+}
+
 int main() {
     // Overclock support: For speeds > 252 MHz, increase voltage first
 #if CPU_CLOCK_MHZ > 252
     vreg_disable_voltage_limit();
+#if PICO_RP2040
+    hw_set_bits(&vreg_and_chip_reset_hw->vreg,
+                VREG_AND_CHIP_RESET_VREG_VSEL_BITS);
+#else
     vreg_set_voltage(CPU_VOLTAGE);
     set_flash_timings(CPU_CLOCK_MHZ);
+#endif
     sleep_ms(100);
 #endif
     
-    // Set system clock
+// Set system clock
+#if PICO_RP2040
+    set_sys_clock_khz(CPU_CLOCK_MHZ * 1000, true);
+#else
     if (!set_sys_clock_khz(CPU_CLOCK_MHZ * 1000, false)) {
         set_sys_clock_khz(252 * 1000, true);
     }
-    
+#endif
+
     // Initialize stdio (USB serial)
     stdio_init_all();
     
+#ifdef PICO_DEFAULT_LED_PIN
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    for (int i = 0; i < 6; i++) {
+        sleep_ms(33);
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+        sleep_ms(33);
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+    }
+#endif
+
     MII_DEBUG_PRINTF("\n\n");
     MII_DEBUG_PRINTF("=================================\n");
+#if PICO_RP2040
+    MII_DEBUG_PRINTF("  MurmApple - Apple IIe on RP2040\n");
+#else
     MII_DEBUG_PRINTF("  MurmApple - Apple IIe on RP2350\n");
+#endif
     MII_DEBUG_PRINTF("=================================\n");
     MII_DEBUG_PRINTF("System Clock: %lu MHz\n", clock_get_hz(clk_sys) / 1000000);
     
+#if PSRAM_MAX_FREQ_MHZ
     // Initialize PSRAM
     MII_DEBUG_PRINTF("Initializing PSRAM...\n");
     uint psram_pin = get_psram_pin();
@@ -427,31 +453,15 @@ int main() {
     if (psram[0] != 0xAB || psram[1] != 0xCD || psram[2] != 0xEF) {
         MII_DEBUG_PRINTF("ERROR: PSRAM read/write failed!\n");
     }
-    
-    // Allocate HDMI framebuffer in SRAM (not PSRAM!) - DMA needs fast access
-    MII_DEBUG_PRINTF("Allocating HDMI framebuffer in SRAM...\n");
-    // Double-buffer to prevent tearing: one buffer scanned out by HDMI DMA, one rendered by core1.
-    g_hdmi_front_buffer = (uint8_t *)malloc(HDMI_WIDTH * HDMI_HEIGHT);
-    g_hdmi_back_buffer = (uint8_t *)malloc(HDMI_WIDTH * HDMI_HEIGHT);
-    if (!g_hdmi_front_buffer || !g_hdmi_back_buffer) {
-        MII_DEBUG_PRINTF("ERROR: Failed to allocate HDMI framebuffer\n");
-        while (1) tight_loop_contents();
-    }
-    MII_DEBUG_PRINTF("HDMI buffers allocated: front=%p back=%p (%d bytes each)\n",
-           g_hdmi_front_buffer, g_hdmi_back_buffer, HDMI_WIDTH * HDMI_HEIGHT);
-    memset(g_hdmi_front_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
-    memset(g_hdmi_back_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
+#endif
     
     // IMPORTANT: Set buffer and resolution BEFORE graphics_init() 
     // because DMA/IRQs start immediately and will read from the buffer
-    graphics_set_buffer(g_hdmi_front_buffer);
     graphics_set_res(HDMI_WIDTH, HDMI_HEIGHT);
     
     // Initialize HDMI graphics (starts DMA/IRQs)
     MII_DEBUG_PRINTF("Initializing HDMI...\n");
     graphics_init(g_out_HDMI);
-    MII_DEBUG_PRINTF("HDMI buffer at %p (%lux%lu)\n", 
-            graphics_get_buffer(), graphics_get_width(), graphics_get_height());
     
     // Initialize palette
     init_palette();
@@ -462,10 +472,6 @@ int main() {
     extern uint32_t conv_color[];
     uint64_t *conv_color64 = (uint64_t *)conv_color;
     MII_DEBUG_PRINTF("conv_color[15] = 0x%016llx 0x%016llx\n", conv_color64[30], conv_color64[31]);
-    
-    // Clear framebuffer to black
-    memset(g_hdmi_front_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
-    memset(g_hdmi_back_buffer, 0, HDMI_WIDTH * HDMI_HEIGHT);
     
     // Initialize PS/2 keyboard
     MII_DEBUG_PRINTF("Initializing PS/2 keyboard...\n");
@@ -578,6 +584,7 @@ int main() {
                p[0], p[1], p[2], p[3]);
     } else {
         MII_DEBUG_PRINTF("ERROR: Char ROM missing (desc=%p)\n", (void *)g_mii.video.rom);
+        while(1);
     }
     
     // Reset the emulator - this sets reset flag and state to RUNNING
@@ -602,7 +609,9 @@ int main() {
         .subtitle = "Apple IIe Emulator",
         .version = "v1.00",
         .cpu_mhz = CPU_CLOCK_MHZ,
+#if PSRAM_MAX_FREQ_MHZ
         .psram_mhz = PSRAM_MAX_FREQ_MHZ,
+#endif
         .board_variant = board_num,
     };
     mii_startscreen_show(&screen_info);
@@ -625,7 +634,7 @@ int main() {
     multicore_launch_core1(core1_main);
     MII_DEBUG_PRINTF("Core 1 launched\n");
     
-#ifdef FEATURE_AUDIO
+#ifdef FEATURE_AUDIO_I2S
     // Initialize I2S audio
     MII_DEBUG_PRINTF("Initializing I2S audio...\n");
     if (mii_audio_i2s_init()) {
@@ -634,6 +643,9 @@ int main() {
     } else {
         MII_DEBUG_PRINTF("I2S audio initialization failed\n");
     }
+#endif
+#ifdef FEATURE_AUDIO_PWM
+    PWM_init_pin(BEEPER_PIN, (1 << 12) - 1);
 #endif
 
     MII_DEBUG_PRINTF("Starting emulation on core 0...\n");
@@ -900,7 +912,7 @@ int main() {
         total_cpu_time += (cpu_end - cpu_start);
         total_cycles_run += (uint32_t)(cycles_after - cycles_before);
 
-#ifdef FEATURE_AUDIO
+#ifdef FEATURE_AUDIO_I2S
         // Update audio output - fills I2S buffers
         mii_audio_update(cycles_after, a2_cycles_per_second);
 #endif
@@ -946,7 +958,7 @@ int main() {
         }
         
          // Print detailed performance metrics every 300 frames (5 seconds)
-    #if ENABLE_DEBUG_LOGS
+    #if 0
          if ((frame_count % 300) == 0) {
              uint32_t elapsed_us = time_us_32() - metrics_start_us;
              uint32_t avg_frame_us = total_emu_time / 300;
@@ -984,6 +996,5 @@ int main() {
          }
     #endif
     }
-    
     return 0;
 }

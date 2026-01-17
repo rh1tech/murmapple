@@ -140,3 +140,25 @@ void
 mii_video_reset_vbl_timer(
 		struct mii_t *mii);
 #endif
+
+static inline uint32_t
+_mii_line_to_video_addr(
+		uint32_t addr,
+		uint8_t line)
+{
+	addr += ((line & 0x07) << 10) |
+				 (((line >> 3) & 7) << 7) |
+					((line >> 6) << 5) | ((line >> 6) << 3);
+	return addr;
+}
+
+static inline uint8_t
+_mii_get_1bits_rp2350(
+		const uint8_t *buffer,
+		int bit)
+{
+	return (buffer[bit >> 3] >> (7 - (bit & 7))) & 1;
+}
+
+extern const mii_video_clut_t mii_base_clut;
+extern const uint8_t rp2350_ci_to_hw[16];

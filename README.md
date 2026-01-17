@@ -1,12 +1,12 @@
 # MurmApple
 
-Apple IIe Emulator for RP2350 (Raspberry Pi Pico 2 or similar) with HDMI output, SD card, PS/2 and USB keyboard, and audio.
+Apple IIe Emulator for RP2040/RP2350 (Raspberry Pi Pico, Pico 2 or similar) with HDMI output, SD card, PS/2 and USB keyboard, and audio.
 
 ## Supported Boards
 
-This firmware is designed for the following RP2350-based boards with integrated HDMI, SD card, PS/2, and PSRAM:
+This firmware is designed for the following RP2350-based boards with integrated HDMI, SD card and PS/2 or USB HID:
 
-- **[Murmulator](https://murmulator.ru)** — A compact retro-computing platform based on RP Pico 2, designed for emulators and classic games.
+- **[Murmulator](https://murmulator.ru)** — A compact retro-computing platform based on RP Pico / Pico 2, designed for emulators and classic games.
 - **[FRANK](https://rh1.tech/projects/frank?area=about)** — A versatile development board based on RP Pico 2, HDMI output, and extensive I/O options.
 
 Both boards provide all necessary peripherals out of the box—no additional wiring required.
@@ -16,7 +16,6 @@ Both boards provide all necessary peripherals out of the box—no additional wir
 - Full Apple IIe emulation with 65C02 CPU
 - Native 320×240 HDMI video output via PIO
 - All video modes: Text, Lo-Res, Hi-Res, Double Hi-Res
-- 8MB QSPI PSRAM support for disk images
 - SD card support for DSK, NIB, and WOZ disk images
 - PS/2 keyboard input
 - USB keyboard input (via native USB Host)
@@ -26,29 +25,18 @@ Both boards provide all necessary peripherals out of the box—no additional wir
 
 ## Hardware Requirements
 
-- **Raspberry Pi Pico 2** (RP2350) or compatible board
-- **8MB QSPI PSRAM** (mandatory!)
+- **Raspberry Pi Pico** (RP2040), or **Raspberry Pi Pico 2** (RP2350), or compatible board
 - **HDMI connector** (directly connected via resistors, no HDMI encoder needed)
 - **SD card module** (SPI mode)
 - **PS/2 keyboard** (directly connected) — OR —
 - **USB keyboard** (via native USB port, hub supported)
-- **I2S DAC module** (e.g., TDA1387) for audio output
+- **I2S DAC module** (e.g., TDA1387 or PCM5102) for audio output
 
 > **Note:** When USB HID is enabled, the native USB port is used for keyboard input. USB serial console (CDC) is disabled in this mode; use UART for debug output.
 
-### PSRAM Options
-
-MurmApple requires 8MB PSRAM to run. You can obtain PSRAM-equipped hardware in several ways:
-
-1. **Solder a PSRAM chip** on top of the Flash chip on a Pico 2 clone (SOP-8 flash chips are only available on clones, not the original Pico 2)
-2. **Build a [Nyx 2](https://rh1.tech/projects/nyx?area=nyx2)** — a DIY RP2350 board with integrated PSRAM
-3. **Purchase a [Pimoroni Pico Plus 2](https://shop.pimoroni.com/products/pimoroni-pico-plus-2?variant=42092668289107)** — a ready-made Pico 2 with 8MB PSRAM
-
 ## Board Configurations
 
-Two GPIO layouts are supported: **M1** and **M2**. The PSRAM pin is auto-detected based on chip package:
-- **RP2350B**: GPIO47 (both M1 and M2)
-- **RP2350A**: GPIO19 (M1) or GPIO8 (M2)
+Two GPIO layouts are supported: **M1** and **M2**.
 
 ### HDMI (via 270Ω resistors)
 | Signal | M1 GPIO | M2 GPIO |
@@ -87,11 +75,11 @@ Two GPIO layouts are supported: **M1** and **M2**. The PSRAM pin is auto-detecte
 
 MurmApple is available in three speed configurations:
 
-| Speed | CPU Clock | PSRAM Clock | Description |
-|-------|-----------|-------------|-------------|
-| Stock | 252 MHz   | 100 MHz     | Default, stable operation |
-| Medium OC | 378 MHz | 133 MHz   | Moderate overclock, improved performance |
-| Max OC | 504 MHz  | 166 MHz     | Maximum overclock, best performance |
+| Speed | CPU Clock | Description |
+|-------|-----------|-------------|
+| Stock | 252 MHz   | Default, stable operation |
+| Medium OC | 378 MHz | Moderate overclock, improved performance |
+| Max OC | 504 MHz  | Maximum overclock, best performance |
 
 Choose based on your hardware's overclocking capability. Most boards work reliably at 378/133 MHz.
 
@@ -137,7 +125,6 @@ make -j$(nproc)
 | `-DPS2_KEYBOARD_ENABLED=ON` | Enable PS/2 keyboard input |
 | `-DDEBUG_LOGS_ENABLED=ON` | Enable verbose debug logging |
 | `-DCPU_SPEED=504` | CPU overclock in MHz (252, 378, 504) |
-| `-DPSRAM_SPEED=166` | PSRAM speed in MHz |
 
 Or use the build script (builds M1 by default):
 
@@ -154,12 +141,12 @@ To build both M1 and M2 variants with version numbering:
 ```
 
 This creates versioned UF2 files in the `release/` directory:
-- `murmapple_m1_252_100_X_XX.uf2` (stock speed)
-- `murmapple_m1_378_133_X_XX.uf2` (medium overclock)
-- `murmapple_m1_504_166_X_XX.uf2` (max overclock)
-- `murmapple_m2_252_100_X_XX.uf2` (stock speed)
-- `murmapple_m2_378_133_X_XX.uf2` (medium overclock)
-- `murmapple_m2_504_166_X_XX.uf2` (max overclock)
+- `murmapple_m1_252_X_XX.uf2` (stock speed)
+- `murmapple_m1_378_X_XX.uf2` (medium overclock)
+- `murmapple_m1_504_X_XX.uf2` (max overclock)
+- `murmapple_m2_252_X_XX.uf2` (stock speed)
+- `murmapple_m2_378_X_XX.uf2` (medium overclock)
+- `murmapple_m2_504_X_XX.uf2` (max overclock)
 
 ### Flashing
 

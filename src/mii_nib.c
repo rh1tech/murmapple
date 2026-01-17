@@ -117,12 +117,15 @@ _mii_floppy_nib_write_sector(
 		uint8_t sector,
 		uint8_t data_sector[342 + 1] )
 {
+// unsupported for now
+#if 0
 	(void)track_data;
 	    MII_DEBUG_PRINTF("%s: T %2d S %2d has changed, writing sector\n",
 		    __func__, track_id, sector);
 	uint8_t *dst = file->map + (track_id * 6656) +
 					map->sector[sector].nib_position;
 	memcpy(dst, data_sector, 342 + 1);
+#endif
 }
 
 int
@@ -130,6 +133,8 @@ mii_floppy_nib_load(
 		mii_floppy_t *f,
 		mii_dd_file_t *file )
 {
+// unsupported for now
+#if 0
 	const char *filename = basename(file->pathname);
 	MII_DEBUG_PRINTF("%s: loading NIB %s\n", __func__, filename);
 	for (int i = 0; i < 35; i++) {
@@ -143,5 +148,6 @@ mii_floppy_nib_load(
 	//	printf("Track %d converted to %d bits\n", i, f->tracks[i].bit_count);
 		f->tracks[i].dirty = 0;
 	}
+#endif
 	return 0;
 }

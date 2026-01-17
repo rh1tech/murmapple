@@ -12,6 +12,7 @@
 #include "hardware/clocks.h"
 #include "hardware/irq.h"
 #include "pico/platform.h"
+#include "disk_ui.h"
 
 // Flag to defer IRQ handler setup to Core 1
 // When true, hdmi_init() will NOT set the IRQ handler - Core 1 must call
@@ -23,26 +24,11 @@ int graphics_buffer_width = 320;
 int graphics_buffer_height = 240;
 int graphics_buffer_shift_x = 0;
 int graphics_buffer_shift_y = 0;
-enum graphics_mode_t hdmi_graphics_mode = 1;  // Use default/simple case
 
-static uint8_t *graphics_buffer = NULL;
-static volatile uint8_t *graphics_pending_buffer = NULL;
 static volatile uint32_t graphics_frame_count = 0;
-
-void graphics_set_buffer(uint8_t *buffer) {
-    graphics_buffer = buffer;
-}
-
-void graphics_request_buffer_swap(uint8_t *buffer) {
-    graphics_pending_buffer = buffer;
-}
 
 uint32_t hdmi_get_frame_count(void) {
     return graphics_frame_count;
-}
-
-uint8_t* graphics_get_buffer(void) {
-    return graphics_buffer;
 }
 
 uint32_t graphics_get_width(void) {
@@ -61,12 +47,6 @@ void graphics_set_res(int w, int h) {
 void graphics_set_shift(int x, int y) {
     graphics_buffer_shift_x = x;
     graphics_buffer_shift_y = y;
-}
-
-uint8_t* __not_in_flash_func(get_line_buffer)(int line) {
-    if (!graphics_buffer) return NULL;
-    if (line < 0 || line >= graphics_buffer_height) return NULL;
-    return graphics_buffer + line * graphics_buffer_width;
 }
 
 static struct video_mode_t video_mode[] = {
@@ -89,11 +69,6 @@ int __not_in_flash_func(get_video_mode)() {
 void __not_in_flash_func(vsync_handler)() {
     // Called from DMA IRQ at frame boundary.
     graphics_frame_count++;
-    uint8_t *pending = (uint8_t *)graphics_pending_buffer;
-    if (pending) {
-        graphics_buffer = pending;
-        graphics_pending_buffer = NULL;
-    }
 }
 
 // --- New HDMI Driver Code ---
@@ -140,6 +115,14 @@ alignas(4096) uint32_t conv_color[1224];
 //индекс, проверяющий зависание
 static uint32_t irq_inx = 0;
 static uint32_t last_check_irq = 0;
+
+#include "mii.h"
+#include "mii_sw.h"
+#include "mii_bank.h"
+#include "mii_rom.h"
+#include "mii_video.h"
+extern mii_t g_mii;
+volatile int lock_y = -1;
 
 // Debug function to get DMA IRQ count
 uint32_t hdmi_get_irq_count(void) {
@@ -305,10 +288,10 @@ static void pio_set_x(PIO pio, const int sm, uint32_t v) {
     pio_sm_exec(pio, sm, instr_mov);
 }
 
-static void __not_in_flash_func(dma_handler_HDMI)() {
+static void __not_in_flash() dma_handler_HDMI() {
     static uint32_t inx_buf_dma;
     static uint line = 0;
-    struct video_mode_t mode = graphics_get_video_mode(get_video_mode());
+    struct video_mode_t mode = video_mode[0];
     irq_inx++;
 
     dma_hw->ints0 = 1u << dma_chan_ctrl;
@@ -327,22 +310,17 @@ static void __not_in_flash_func(dma_handler_HDMI)() {
     uint8_t* activ_buf = (uint8_t *)dma_lines[inx_buf_dma & 1];
 
     if (line < mode.h_width ) {
-        uint8_t* output_buffer = activ_buf + 72; //для выравнивания синхры;
         int y = line >> 1;
-        
-        // Read from framebuffer and copy to output
-        uint8_t* input_buffer = get_line_buffer(y);
-        if (input_buffer) {
-            // Copy from framebuffer, substituting HDMI reserved colors
-            for (int i = 0; i < SCREEN_WIDTH; i++) {
-                uint8_t c = input_buffer[i];
-                if (c >= 240 && c <= 243) c = color_substitute[c - 240];
-                output_buffer[i] = c;
-            }
-        } else {
-            // No buffer - fill with background color
-            memset(output_buffer, 0, SCREEN_WIDTH);
+        register uint8_t* input_buffer = graphics_get_buffer() + y * SCREEN_WIDTH;
+        register uint8_t* output_buffer = activ_buf + 72; //для выравнивания синхры;
+        // Copy from framebuffer, substituting HDMI reserved colors
+        lock_y = y;
+        for (register int i = 0; i < SCREEN_WIDTH; i++) {
+            register uint8_t c = input_buffer[i];
+            if (c >= 240 && c <= 243) c = color_substitute[c - 240];
+            output_buffer[i] = c;
         }
+        lock_y = -1;
         
         //ССИ
         //для выравнивания синхры
@@ -759,6 +737,11 @@ void graphics_restore_sync_colors(void) {
 
     conv_color64[2 * (base_inx + 3) + 0] = get_ser_diff_data(b0, b0, b0);
     conv_color64[2 * (base_inx + 3) + 1] = get_ser_diff_data(b0, b0, b0);
+}
+
+uint8_t* graphics_get_buffer() {
+    static uint8_t graphics_buffer[SCREEN_WIDTH * SCREEN_HEIGHT] = { 0 };
+    return graphics_buffer;
 }
 
 // Wrappers for existing API

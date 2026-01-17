@@ -55,8 +55,8 @@
 
 // Sample buffer for apple2ts-style audio generation
 // Algorithm from Kent Dickey: accumulate fractional contributions per sample
-#define SAMPLE_BUFFER_SIZE 32768  // ~0.74 seconds at 44100 Hz (larger buffer)
-#define SAMPLE_BUFFER_OFFSET 2048 // Playback lags behind writes by this many samples (~46ms)
+#define SAMPLE_BUFFER_SIZE 16384  // ~0.74 seconds at 22050 Hz (larger buffer)
+#define SAMPLE_BUFFER_OFFSET 1024 // Playback lags behind writes by this many samples (~46ms)
 
 static struct {
     // Circular buffer of sample contributions
@@ -78,7 +78,7 @@ static struct {
     int speaker_value;
     
     // Sampling rate ratio: samples per CPU cycle (16.16 fixed point)
-    // 44100 / 1020484 ≈ 0.0432
+    // 44100 / 1020484 ≈ 0.0432 ?
     uint32_t samples_per_cycle_frac;
     
 } sample_buffer;
@@ -98,7 +98,7 @@ static struct {
     int16_t mockingboard_right;
     
     // Timing
-    uint32_t cycles_per_sample;         // CPU cycles per audio sample (~23 at 44100Hz)
+    uint32_t cycles_per_sample;         // CPU cycles per audio sample (~23 at 44100Hz) ?
     
 } audio_state;
 
@@ -176,14 +176,14 @@ bool mii_audio_i2s_init(void)
     sample_buffer.speaker_value = 256;  // Start HIGH (256 = +1.0 in 8.8 fixed point)
     
     // Calculate samples per CPU cycle as 16.16 fixed point
-    // 44100 / 1020484 ≈ 0.0432, in 16.16 fixed point = 2831
-    sample_buffer.samples_per_cycle_frac = (uint32_t)((44100ULL << 16) / 1020484ULL);
+    // 22050 / 1020484 ≈ 0.0432, in 16.16 fixed point = 2831/2 ?
+    sample_buffer.samples_per_cycle_frac = (uint32_t)((22050ULL << 16) / 1020484ULL);
     
     // Initialize speaker state
     audio_state.speaker_sample = 0;
     
     // Calculate cycles per sample (will be updated with actual CPU speed)
-    // Default: 1.023 MHz Apple II clock / 44100 Hz = ~23.2 cycles per sample
+    // Default: 1.023 MHz Apple II clock / 22050 Hz = ~23.2 cycles per sample
     audio_state.cycles_per_sample = 1023000 / MII_I2S_SAMPLE_RATE;
     
     audio_state.initialized = true;
@@ -215,8 +215,8 @@ void mii_audio_speaker_click(uint64_t cycle)
     }
     
     // Convert CPU cycle to sample number
-    // sampling = 44100 / 1020484 ≈ 0.0432
-    // In 16.16 fixed point: 44100 * 65536 / 1020484 ≈ 2831
+    // sampling = 44100 / 1020484 ≈ 0.0432 ?
+    // In 16.16 fixed point: 44100 * 65536 / 1020484 ≈ 2831 ?
     uint64_t new_sample_frac = cycle * sample_buffer.samples_per_cycle_frac;
     uint64_t new_sample = new_sample_frac >> 16;
     

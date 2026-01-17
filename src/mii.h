@@ -155,15 +155,11 @@ typedef struct mii_t {
 	 * bank index for each memory page number, this is recalculated
 	 * everytime a MMU soft switch is triggered
 	 */
-	struct  		{
-		union {
-			struct {
-				uint8_t write : 4, read : 4;
-			};
-			uint8_t 	both;
-		};
-	} 				mem[256];
-	int 			mem_dirty;	// recalculate mem[] on next access
+	struct {
+		uint8_t write : 4, // bank # for write operations
+		        read  : 4; // bank # for read operations
+	}	mem[256];
+	int mem_dirty;	// recalculate mem[] on next access
 	/*
 	 * RAMWORKS card emulation, this is a 16MB address space, with 128
 	 * possible 64KB banks. The 'avail' bitfield marks the banks that
@@ -173,7 +169,7 @@ typedef struct mii_t {
 	 * These memory blocks replace the main AUX bank when a register is set.
 	 */
 	struct {
-#if MII_RP2350
+#if PICO_RP2040 || PICO_RP2350
 		uint32_t			avail_lo;
 		uint32_t			avail_hi;
 		uint32_t			avail_lo2;
