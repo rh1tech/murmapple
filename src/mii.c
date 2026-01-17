@@ -725,8 +725,6 @@ static const unsigned __int128 _mii_ramworks3_config[] = {
 
 #if MII_RP2350
 
-extern bool vram_locked;
-
 void
 mii_init(
 		mii_t *mii )
@@ -735,9 +733,6 @@ mii_init(
 	memset(mii, 0, sizeof(*mii));
 	mii->speed = MII_SPEED_NTSC;
 	mii->timer.map = 0;
-
-	__dmb();          // Data Memory Barrier
-	vram_locked = true;
 
 	MII_DEBUG_PRINTF("  mii_init: setting up banks...\n");
 	for (int i = 0; i < MII_BANK_COUNT; i++) {
@@ -751,9 +746,6 @@ mii_init(
 	init_ram_pages_for(&main_vram_d, vram, RAM_PAGES_PER_POOL * RAM_PAGE_SIZE);
 	MII_DEBUG_PRINTF("    Clearing aux memory (52KB)\n");
 	init_ram_pages_for(&aux_vram_d, vram, RAM_PAGES_PER_POOL * RAM_PAGE_SIZE);
-
-	vram_locked = false;
-	__dmb();          // Data Memory Barrier
 
 	MII_DEBUG_PRINTF("    Clearing soft switch area\n");
 	memset(rp2350_sw_mem, 0, sizeof(rp2350_sw_mem));
