@@ -47,7 +47,11 @@ typedef struct sram_page_t {
 
 #define RAM_IN_PAGE_ADDR_MASK (0x000000FF) // one byte adresses 256 pages
 #define RAM_PAGE_SIZE (0x00000100L)
+#if PICO_RP2040
 #define RAM_PAGES_PER_POOL (156) //(96)
+#else
+#define RAM_PAGES_PER_POOL (256)
+#endif
 #define MAX_PAGES_PER_POOL (256)
 #define SHIFT_AS_DIV (8)
 
