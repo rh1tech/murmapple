@@ -24,7 +24,10 @@
 #include "debug_log.h"
 
 // Global state
-disk_entry_t g_disk_list[MAX_DISK_IMAGES];
+extern uint8_t vram[2 * RAM_PAGES_PER_POOL * RAM_PAGE_SIZE];
+#define MAX_DISK_IMAGES (sizeof(vram) / sizeof(disk_entry_t))
+disk_entry_t* g_disk_list = (disk_entry_t*)vram;//[MAX_DISK_IMAGES];
+
 int g_disk_count = 0;
 loaded_disk_t g_loaded_disks[2] = {0};
 
@@ -187,36 +190,27 @@ fail:
 }
 
 static int disk_load_floppy_nib_from_fatfs(mii_floppy_t *floppy, FIL *fp) {
-    uint8_t *track_buf = (uint8_t *)malloc(MII_FLOPPY_MAX_TRACK_SIZE);
-    if (!track_buf) {
-        printf("%s: out of memory\n", __func__);
-        return -1;
-    }
     for (int track = 0; track < 35; track++) {
         const uint32_t off = (uint32_t)(track * MII_FLOPPY_MAX_TRACK_SIZE);
         FRESULT fr = f_lseek(fp, off);
         if (fr != FR_OK) {
             printf("%s: f_lseek(%lu) failed: %d\n", __func__, (unsigned long)off, fr);
-            free(track_buf);
             return -1;
         }
         UINT br = 0;
         fr = f_read(fp, track_buf, MII_FLOPPY_MAX_TRACK_SIZE, &br);
         if (fr != FR_OK || br != MII_FLOPPY_MAX_TRACK_SIZE) {
             printf("%s: f_read track failed: fr=%d br=%u\n", __func__, fr, br);
-            free(track_buf);
             return -1;
         }
         uint8_t* track_data = floppy->curr_track_data;
         mii_floppy_nib_render_track(track_buf, &floppy->tracks[track], track_data);
         if (floppy->tracks[track].bit_count < 100) {
             printf("%s: invalid NIB track %d\n", __func__, track);
-            free(track_buf);
             return -1;
         }
         floppy->tracks[track].dirty = 0;
     }
-    free(track_buf);
     return 0;
 }
 
@@ -230,12 +224,6 @@ disk_load_floppy_nib_track_from_fatfs(
     if (track_id >= 35)
         return 0;
 
-    uint8_t *track_buf = (uint8_t *)malloc(MII_FLOPPY_MAX_TRACK_SIZE);
-    if (!track_buf) {
-        printf("%s: out of memory\n", __func__);
-        return -1;
-    }
-
     const uint32_t off =
         (uint32_t)track_id * MII_FLOPPY_MAX_TRACK_SIZE;
 
@@ -243,7 +231,6 @@ disk_load_floppy_nib_track_from_fatfs(
     if (fr != FR_OK) {
         printf("%s: f_lseek(%lu) failed: %d\n",
                          __func__, (unsigned long)off, fr);
-        free(track_buf);
         return -1;
     }
 
@@ -252,7 +239,6 @@ disk_load_floppy_nib_track_from_fatfs(
     if (fr != FR_OK || br != MII_FLOPPY_MAX_TRACK_SIZE) {
         printf("%s: f_read track %d failed: fr=%d br=%u\n",
                          __func__, track_id, fr, br);
-        free(track_buf);
         return -1;
     }
 
@@ -263,14 +249,11 @@ disk_load_floppy_nib_track_from_fatfs(
     if (dst->bit_count < 100) {
         printf("%s: invalid NIB track %d\n",
                          __func__, track_id);
-        free(track_buf);
         return -1;
     }
 
     dst->dirty  = 0;
     dst->virgin = 0;
-
-    free(track_buf);
     return 0;
 }
 

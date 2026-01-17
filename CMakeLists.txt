@@ -202,7 +202,7 @@ target_compile_definitions(${BUILD_NAME} PRIVATE
     PICO_AUDIO_I2S_DMA_CHANNEL=6
     PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
     PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
-#    FEATURE_AUDIO=1
+    FEATURE_AUDIO=1
 )
 
 if(PS2_KEYBOARD_ENABLED)
@@ -224,7 +224,7 @@ endif()
 # -fno-strict-aliasing: Allow type punning (common in emulators)
 # -march=armv8-m.main+fp+dsp: Target Cortex-M33 architecture
 target_compile_options(${BUILD_NAME} PRIVATE 
-    -O3 
+    -O3
     -ffunction-sections 
     -fdata-sections
     -fno-strict-aliasing

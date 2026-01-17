@@ -22,10 +22,10 @@ void
 mii_bank_init(
 		mii_bank_t *bank)
 {
-	if (bank->raw)
+	if (bank->ua.raw)
 		return;
 	if (bank->logical_mem_offset == 0 && !bank->no_alloc) {
-		bank->raw = calloc(1, bank->size * 256);
+		bank->ua.raw = calloc(1, bank->size * 256);
 		bank->alloc = 1;
 	}
 }
@@ -36,8 +36,8 @@ mii_bank_dispose(
 {
 //	printf("%s %s\n", __func__, bank->name);
 	if (bank->alloc)
-		free(bank->raw);
-	bank->raw = NULL;
+		free(bank->ua.raw);
+	bank->ua.raw = NULL;
 	bank->alloc = 0;
 #if WITH_BANK_ACCESS
 	if (bank->access) {
@@ -86,17 +86,18 @@ mii_bank_write(
 	if (!bank->vram) {
 		uint32_t phy = bank->logical_mem_offset + addr - bank->base;
 		do {
-			bank->raw[phy++] = *data++;
+			bank->ua.raw[phy++] = *data++;
 		} while (likely(--len));
 		return;
 	}
+	vram_t* v = bank->ua.vram_desc;
 	while (len) {
 		uint32_t phy = bank->logical_mem_offset + addr - bank->base;
 		uint32_t off  = phy & RAM_IN_PAGE_ADDR_MASK;
 		uint32_t n    = MIN(len, RAM_PAGE_SIZE - off);
-		uint32_t phys_page = get_ram_page_for(bank, phy);
-		bank->vram_desc->desc[phys_page].dirty = 1;
-		uint8_t *dst = bank->raw + (phys_page << 8) + off;
+		uint32_t lba_page = get_ram_page_for(v, phy);
+		v->s_desc[lba_page].dirty = 1;
+		uint8_t *dst = v->raw + (lba_page << SHIFT_AS_DIV) + off;
 		memcpy(dst, data, n);
 		addr += n;
 		data += n;
@@ -116,16 +117,17 @@ mii_bank_read(
 	if (!bank->vram) {
 		uint32_t phy = bank->logical_mem_offset + addr - bank->base;
 		do {
-			*data++ = bank->raw[phy++];
+			*data++ = bank->ua.raw[phy++];
 		} while (likely(--len));
 		return;
 	}
+	vram_t* v = bank->ua.vram_desc;
 	while (len) {
 		uint32_t phy = bank->logical_mem_offset + addr - bank->base;
 		uint32_t off  = phy & RAM_IN_PAGE_ADDR_MASK;
 		uint32_t n    = MIN(len, RAM_PAGE_SIZE - off);
-		uint32_t phys_page = get_ram_page_for(bank, phy);
-		uint8_t *dst = bank->raw + (phys_page << 8) + off;
+		uint32_t lba_page = get_ram_page_for(v, phy);
+		uint8_t *dst = v->raw + (lba_page << SHIFT_AS_DIV) + off;
 		memcpy(data, dst, n);
 		addr += n;
 		data += n;
@@ -168,14 +170,14 @@ mii_bank_install_access_cb(
 
 // To save vpage
 inline static
-void flush_vram_block(vram_t* __restrict vram, vram_page_t* desc, const uint8_t vpage, uint8_t* raw) {
+void flush_vram_block(vram_t* __restrict vram, vram_page_t* desc, const uint8_t vpage) {
     gpio_put(PICO_DEFAULT_LED_PIN, true);
     const uint32_t file_off = ((uint32_t)vpage) * RAM_PAGE_SIZE;
     const uint32_t ram_off  = ((uint32_t)desc->lba) * RAM_PAGE_SIZE;
 	f_lseek(&vram->f, file_off);
     UINT wb;
     f_write(&vram->f,
-            raw + ram_off,
+            vram->raw + ram_off,
             RAM_PAGE_SIZE,
             &wb);
 	// mark page as not more stored
@@ -185,63 +187,79 @@ void flush_vram_block(vram_t* __restrict vram, vram_page_t* desc, const uint8_t 
 
 // To load vpage
 inline static
-void read_vram_block(vram_t* __restrict vram, const uint8_t vpage, const uint8_t lba_page, uint8_t* raw) {
+void read_vram_block(vram_t* __restrict vram, const uint8_t vpage, const uint8_t lba_page) {
     gpio_put(PICO_DEFAULT_LED_PIN, true);
-	register vram_page_t* desc = &vram->desc[vpage]; // target
+	register vram_page_t* desc = &vram->v_desc[vpage]; // target
     const uint32_t file_off = ((uint32_t)vpage) * RAM_PAGE_SIZE;
     const uint32_t ram_off  = ((uint32_t)lba_page) * RAM_PAGE_SIZE;
 	f_lseek(&vram->f, file_off);
     UINT rb;
     f_read(&vram->f,
-           raw + ram_off,
+           vram->raw + ram_off,
            RAM_PAGE_SIZE,
            &rb);
 	// mew owner for the lba page
 	desc->lba = lba_page;
 	desc->in_ram = 1;
-	desc->dirty = 0; // just read, not yet changed
+	vram->s_desc[lba_page].dirty = 0; // just read, not yet changed
     gpio_put(PICO_DEFAULT_LED_PIN, false);
 }
 
-uint8_t get_ram_page_for(const mii_bank_t* b, const uint16_t addr16) {
-	register vram_t* vram = b->vram_desc;
+uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16) {
     const register uint8_t vpage = addr16 >> SHIFT_AS_DIV; // page idx in Aplle II space
-	register vram_page_t* desc = &vram->desc[vpage];
+	register vram_page_t* desc = &vram->v_desc[vpage];
 	if (desc->in_ram)
     	return desc->lba; // page idx in swap RAM
 
 	// lookup for a page to be unload
-	register uint8_t* poldest_vpage = &vram->oldest_vpage;
-	register uint8_t invalidate_vpage = (*poldest_vpage)++;
-	if (*poldest_vpage >= b->size) *poldest_vpage = 0;
-	// skip pinned and not in ram
-	while(vram->desc[*poldest_vpage].pinned || !vram->desc[*poldest_vpage].in_ram) {
-		invalidate_vpage = (*poldest_vpage)++;
-		if (*poldest_vpage >= b->size) *poldest_vpage = 0;
-	}
-	desc = &vram->desc[invalidate_vpage]; // victim
-	register uint8_t lba = desc->lba; // this lba will be owned by other vpage
+    uint8_t* pold = &vram->oldest_vpage;
+    uint8_t invalidate_vpage = *pold;
+    while (vram->v_desc[invalidate_vpage].pinned || !vram->v_desc[invalidate_vpage].in_ram) {
+        invalidate_vpage++;
+    }
+    // advance oldest to next position after selected victim
+    *pold = (uint8_t)(invalidate_vpage + 1);
+	
+	desc = &vram->v_desc[invalidate_vpage]; // victim
+	register uint8_t lba_page = desc->lba; // this lba will be owned by other vpage
 	// save changed block into swap file first
-	if (desc->dirty) {
-		flush_vram_block(vram, desc, invalidate_vpage, b->raw);
+	if (vram->s_desc[lba_page].dirty) {
+		flush_vram_block(vram, desc, invalidate_vpage);
+	} else {
+		desc->in_ram = 0;
 	}
 
-	read_vram_block(vram, vpage, lba, b->raw);
-	return lba;
+	read_vram_block(vram, vpage, lba_page);
+	return lba_page;
+}
+
+inline static
+void pin_ram_pages_for_core0(
+        vram_t* v,
+        const uint32_t start_addr,
+        const uint16_t len_bytes)
+{
+    for (uint32_t off = 0; off < len_bytes; off += RAM_PAGE_SIZE) {
+		uint32_t addr = start_addr + off;
+		get_ram_page_for(v, addr); // ensure page is in RAM
+        v->v_desc[addr / RAM_PAGE_SIZE].pinned = 1; // mark to not unload related SRAM page
+    }
 }
 
 void init_ram_pages_for(vram_t* v, uint8_t* raw, uint32_t raw_size) {
 	memset(raw, 0, raw_size);
-	memset(v->desc, 0, sizeof(v->desc));
+	memset(v->v_desc, 0, sizeof(v->v_desc));
+	memset(v->s_desc, 0, sizeof(v->s_desc));
 	// mark free pages to me in RAM
 	for (int i = 0; i < raw_size / RAM_PAGE_SIZE; ++i) {
-		v->desc[i].dirty = 0;
-		v->desc[i].in_ram = 1;
-		v->desc[i].lba = i;
+		uint8_t lba = i;
+		v->s_desc[lba].dirty = 0;
+		v->v_desc[i].in_ram = 1;
+		v->v_desc[i].lba = lba;
 	}
-	// always in mem (zero-page and CPU stack)
-	v->desc[0].pinned = 1;
-	v->desc[1].pinned = 1;
+	// always in mem (zero-page and CPU stack) = 2 pages
+	v->v_desc[0].pinned = 1;
+	v->v_desc[1].pinned = 1;
 	v->oldest_vpage = 2;
 	// TODO: error handling later
 	f_open(&v->f, v->filename, FA_CREATE_ALWAYS | FA_WRITE | FA_READ);
@@ -249,4 +267,17 @@ void init_ram_pages_for(vram_t* v, uint8_t* raw, uint32_t raw_size) {
 		UINT wb;
 		f_write(&v->f, raw, 256, &wb); // save zero-bytes pages
 	}
+
+	/* ---------- TEMPORARY VIDEO W/A ---------- */
+	// TEXT / LORES page 1 + 2 (2 x 1 KB = 8 pages)
+	pin_ram_pages_for_core0(v, 0x0400, 0x0400); // $0400–$07FF
+	pin_ram_pages_for_core0(v, 0x0800, 0x0400); // $0800–$0BFF
+
+	// HIRES / DHIRES page 1 (8K = 32 pages)
+	pin_ram_pages_for_core0(v, 0x2000, 0x2000); // $2000–$3FFF
+
+	// HIRES / DHIRES page 2 (8k = 32 pages)
+	pin_ram_pages_for_core0(v, 0x4000, 0x2000); // $4000–$5FFF
+	
+	// TOTAL pinned 74 pages
 }

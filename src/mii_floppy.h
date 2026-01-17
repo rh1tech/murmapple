@@ -12,6 +12,7 @@
 #include "mii_dd.h"
 
 #define MII_FLOPPY_MAX_TRACK_SIZE		6656
+extern uint8_t track_buf[MII_FLOPPY_MAX_TRACK_SIZE]; // avoids malloc
 #define MII_FLOPPY_TRACK_COUNT			35
 
 

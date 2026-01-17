@@ -286,21 +286,21 @@ void disk_ui_init_with_emulator(mii_t *mii, int disk2_slot) {
     MII_DEBUG_PRINTF("Disk UI initialized with mii=%p, slot=%d\n", mii, disk2_slot);
 }
 
+extern uint8_t vram[2 * RAM_PAGES_PER_POOL * RAM_PAGE_SIZE];
 extern FIL fp;
 
 void disk_ui_show(void) {
     if (ui_state == DISK_UI_HIDDEN) {
-        /*
         { // TODO: error handling
             gpio_put(PICO_DEFAULT_LED_PIN, true);
             f_open(&fp, "/tmp/apple.snap", FA_CREATE_ALWAYS | FA_WRITE);
             UINT wb;
-            f_write(&fp, mii_ram, sizeof(mii_ram), &wb);
+            f_write(&fp, vram, sizeof(vram), &wb); // TODO: save only pages, requerid to be saved
             f_close(&fp);
             gpio_put(PICO_DEFAULT_LED_PIN, false);
         }
-        memset(mii_ram, 0, sizeof(mii_ram));
-*/
+        memset(vram, 0, sizeof(vram));
+
         gpio_put(PICO_DEFAULT_LED_PIN, true);
         // Scan for disk images
         int count = disk_scan_directory();
@@ -316,17 +316,16 @@ void disk_ui_show(void) {
 }
 
 void disk_ui_hide(void) {
-    /*
     { // TODO: error handling
         gpio_put(PICO_DEFAULT_LED_PIN, true);
         if (FR_OK == f_open(&fp, "/tmp/apple.snap", FA_READ)) {
             UINT rb;
-            f_read(&fp, mii_ram, sizeof(mii_ram), &rb);
+            f_read(&fp, vram, sizeof(vram), &rb);
             f_close(&fp);
         }
         gpio_put(PICO_DEFAULT_LED_PIN, false);
     }
-    */
+
     ui_state = DISK_UI_HIDDEN;
     ui_rendered = false;
     ui_dirty = false;

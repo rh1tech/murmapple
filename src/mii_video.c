@@ -1481,11 +1481,11 @@ mii_video_render_text40_rp2350(
 	if (video->rom && video->rom->len > (4 * 1024) && video->rom_bank)
 		rom_base += (4 * 1024);
 
-    pin_ram_pages_for(main_bank, base_addr, 0x400);
+    pin_ram_pages_for(main_bank->ua.vram_desc, base_addr, 0x400);
     if (col80)
-        pin_ram_pages_for(aux_bank, base_addr, 0x400);
+        pin_ram_pages_for(aux_bank->ua.vram_desc, base_addr, 0x400);
 	else
-        pin_ram_pages_for(aux_bank, base_addr, 0); // unpin unused
+        pin_ram_pages_for(aux_bank->ua.vram_desc, base_addr, 0); // unpin unused
 		
 	uint8_t main_row[40];
 	int flash = (video->frame_count & 0x10) ? -0x40 : 0x40;
@@ -1581,11 +1581,11 @@ mii_video_render_text40_mixed_rp2350(
 	if (video->rom && video->rom->len > (4 * 1024) && video->rom_bank)
 		rom_base += (4 * 1024);
 	
-    pin_ram_pages_for(main_bank, base_addr, 0x400);
+    pin_ram_pages_for(main_bank->ua.vram_desc, base_addr, 0x400);
     if (col80)
-        pin_ram_pages_for(aux_bank, base_addr, 0x400);
+        pin_ram_pages_for(aux_bank->ua.vram_desc, base_addr, 0x400);
     else
-        pin_ram_pages_for(aux_bank, base_addr, 0); // unpin AUX if unused
+        pin_ram_pages_for(aux_bank->ua.vram_desc, base_addr, 0); // unpin AUX if unused
 		
     uint8_t main_row[40];
     uint8_t aux_row[40];
@@ -1670,8 +1670,8 @@ mii_video_render_hires_rp2350(
 	const int x_off = (320 - 280) / 2; // 20
 	const bool mono = video->monochrome;
 
-	pin_ram_pages_for(main_bank, base_addr, 0x2000);
-    pin_ram_pages_for(aux_bank,  base_addr, 0);
+	pin_ram_pages_for(main_bank->ua.vram_desc, base_addr, 0x2000);
+    pin_ram_pages_for(aux_bank->ua.vram_desc,  base_addr, 0);
 	uint8_t line_buf[40];   // one HGR line = 40 bytes
 	
 	for (int line = 0; line < 192; line++) {
@@ -1747,8 +1747,8 @@ mii_video_render_dhires_rp2350(
 	const bool page2 = SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
 	uint16_t base_addr = 0x2000 + (0x2000 * page2);
 
-    pin_ram_pages_for(main_bank, base_addr, 0x2000);
-    pin_ram_pages_for(aux_bank,  base_addr, 0x2000);
+    pin_ram_pages_for(main_bank->ua.vram_desc, base_addr, 0x2000);
+    pin_ram_pages_for(aux_bank->ua.vram_desc,  base_addr, 0x2000);
 
     uint8_t main_row[40];
     uint8_t aux_row[40];
@@ -1837,8 +1837,8 @@ mii_video_render_lores_rp2350(
 	bool page2 = !!(mii->sw_state & M_SWPAGE2);
 	uint16_t base_addr = page2 ? 0x800 : 0x400;
 	
-    pin_ram_pages_for(main_bank, base_addr, 0x400);
-    pin_ram_pages_for(aux_bank,  base_addr, 0);
+    pin_ram_pages_for(main_bank->ua.vram_desc, base_addr, 0x400);
+    pin_ram_pages_for(aux_bank->ua.vram_desc,  base_addr, 0);
 	
     uint8_t main_row[40];
 
