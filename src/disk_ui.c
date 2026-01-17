@@ -286,8 +286,6 @@ void disk_ui_init_with_emulator(mii_t *mii, int disk2_slot) {
     MII_DEBUG_PRINTF("Disk UI initialized with mii=%p, slot=%d\n", mii, disk2_slot);
 }
 
-#include "ff.h"
-//extern uint8_t mii_ram[0x20000];
 extern FIL fp;
 
 void disk_ui_show(void) {

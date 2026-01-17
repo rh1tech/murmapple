@@ -6,6 +6,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <pico.h>
+#include <pico/stdlib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -163,3 +165,88 @@ mii_bank_install_access_cb(
 	}
 }
 #endif
+
+// To save vpage
+inline static
+void flush_vram_block(vram_t* __restrict vram, vram_page_t* desc, const uint8_t vpage, uint8_t* raw) {
+    gpio_put(PICO_DEFAULT_LED_PIN, true);
+    const uint32_t file_off = ((uint32_t)vpage) * RAM_PAGE_SIZE;
+    const uint32_t ram_off  = ((uint32_t)desc->lba) * RAM_PAGE_SIZE;
+	f_lseek(&vram->f, file_off);
+    UINT wb;
+    f_write(&vram->f,
+            raw + ram_off,
+            RAM_PAGE_SIZE,
+            &wb);
+	// mark page as not more stored
+	desc->in_ram = 0;
+    gpio_put(PICO_DEFAULT_LED_PIN, false);
+}
+
+// To load vpage
+inline static
+void read_vram_block(vram_t* __restrict vram, const uint8_t vpage, const uint8_t lba_page, uint8_t* raw) {
+    gpio_put(PICO_DEFAULT_LED_PIN, true);
+	register vram_page_t* desc = &vram->desc[vpage]; // target
+    const uint32_t file_off = ((uint32_t)vpage) * RAM_PAGE_SIZE;
+    const uint32_t ram_off  = ((uint32_t)lba_page) * RAM_PAGE_SIZE;
+	f_lseek(&vram->f, file_off);
+    UINT rb;
+    f_read(&vram->f,
+           raw + ram_off,
+           RAM_PAGE_SIZE,
+           &rb);
+	// mew owner for the lba page
+	desc->lba = lba_page;
+	desc->in_ram = 1;
+	desc->dirty = 0; // just read, not yet changed
+    gpio_put(PICO_DEFAULT_LED_PIN, false);
+}
+
+uint8_t get_ram_page_for(const mii_bank_t* b, const uint16_t addr16) {
+	register vram_t* vram = b->vram_desc;
+    const register uint8_t vpage = addr16 >> SHIFT_AS_DIV; // page idx in Aplle II space
+	register vram_page_t* desc = &vram->desc[vpage];
+	if (desc->in_ram)
+    	return desc->lba; // page idx in swap RAM
+
+	// lookup for a page to be unload
+	register uint8_t* poldest_vpage = &vram->oldest_vpage;
+	register uint8_t invalidate_vpage = (*poldest_vpage)++;
+	if (*poldest_vpage >= b->size) *poldest_vpage = 0;
+	// skip pinned and not in ram
+	while(vram->desc[*poldest_vpage].pinned || !vram->desc[*poldest_vpage].in_ram) {
+		invalidate_vpage = (*poldest_vpage)++;
+		if (*poldest_vpage >= b->size) *poldest_vpage = 0;
+	}
+	desc = &vram->desc[invalidate_vpage]; // victim
+	register uint8_t lba = desc->lba; // this lba will be owned by other vpage
+	// save changed block into swap file first
+	if (desc->dirty) {
+		flush_vram_block(vram, desc, invalidate_vpage, b->raw);
+	}
+
+	read_vram_block(vram, vpage, lba, b->raw);
+	return lba;
+}
+
+void init_ram_pages_for(vram_t* v, uint8_t* raw, uint32_t raw_size) {
+	memset(raw, 0, raw_size);
+	memset(v->desc, 0, sizeof(v->desc));
+	// mark free pages to me in RAM
+	for (int i = 0; i < raw_size / RAM_PAGE_SIZE; ++i) {
+		v->desc[i].dirty = 0;
+		v->desc[i].in_ram = 1;
+		v->desc[i].lba = i;
+	}
+	// always in mem (zero-page and CPU stack)
+	v->desc[0].pinned = 1;
+	v->desc[1].pinned = 1;
+	v->oldest_vpage = 2;
+	// TODO: error handling later
+	f_open(&v->f, v->filename, FA_CREATE_ALWAYS | FA_WRITE | FA_READ);
+	for (int i = 0; i < 256; ++i) { // file should contain max possible pages
+		UINT wb;
+		f_write(&v->f, raw, 256, &wb); // save zero-bytes pages
+	}
+}

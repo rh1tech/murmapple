@@ -128,7 +128,7 @@ static const mii_bank_t	_mii_banks_init[MII_BANK_COUNT] = {
 		.name = "ROM",
 		.base = 0xc000,
 		.size = 0x40, // 64 pages, 16KB
-		.raw = mii_rom_iiee,
+		.raw = (uint8_t*)mii_rom_iiee,
 		.ro = 1,
 		.no_alloc = 1,
 	},
@@ -737,22 +737,18 @@ mii_init(
 	mii->timer.map = 0;
 
 	MII_DEBUG_PRINTF("  mii_init: setting up banks...\n");
-	for (int i = 0; i < MII_BANK_COUNT; i++)
+	for (int i = 0; i < MII_BANK_COUNT; i++) {
 		mii->bank[i] = _mii_banks_init[i];
+	}
 
 	// Initialize banks (won't allocate since no_alloc is set)
 	MII_DEBUG_PRINTF("  mii_init: initializing bank memory...\n");
 	// For RP2350, only clear MAIN bank once - other banks share memory
 	// We allocated exactly the right sizes, so just clear each unique buffer once
 	MII_DEBUG_PRINTF("    Clearing main memory (64KB)\n");
-	memset(main_vram, 0, sizeof(main_vram));
-	/// TODO: init vram (pin 0, 1)
-	memset(main_vram_d.desc, 0, sizeof(main_vram_d.desc));
-	f_unlink(main_vram_d.filename);
+	init_ram_pages_for(mii->bank[MII_BANK_MAIN].vram_desc, main_vram, sizeof(main_vram));
 	MII_DEBUG_PRINTF("    Clearing aux memory (52KB)\n");
-	memset(aux_vram, 0, sizeof(aux_vram));
-	memset(aux_vram_d.desc, 0, sizeof(aux_vram_d.desc));
-	f_unlink(aux_vram_d.filename);
+	init_ram_pages_for(mii->bank[MII_BANK_AUX].vram_desc, aux_vram, sizeof(aux_vram));
 	MII_DEBUG_PRINTF("    Clearing soft switch area\n");
 	memset(rp2350_sw_mem, 0, sizeof(rp2350_sw_mem));
 	MII_DEBUG_PRINTF("    Clearing card ROM area\n");

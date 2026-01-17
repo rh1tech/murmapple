@@ -37,22 +37,28 @@ typedef struct mii_bank_access_t {
 
 typedef struct vram_page_t {
     uint8_t pinned : 1, // do not use it in swap, the page should be in SRAM
-	        dirty  : 1; // page was changed, so it should be saved to swap (not just unload)
+	        dirty  : 1, // page was changed, so it should be saved to swap (not just unload)
+			in_ram : 1; // already in RAM now
+	uint8_t lba; // page number in real RAM (mii_bank_t.raw) file 0..255
 } vram_page_t;
+
+#include <fatfs/ff.h>
 
 typedef struct vram_t {
 	const char* filename;  // use this filename for case swap this VRAM instance
-	vram_page_t	desc[256]; // not more than 256 pages in one bank
+	vram_page_t	desc[256]; // not more than 256 pages in one bank, index - virtual page number 0..0xFF
+	uint8_t		oldest_vpage;	// rolling page (for invalidation), it is virtual page number (desc[#], Aplle II address related)
+	FIL f;
 } vram_t;
 
 typedef struct mii_bank_t {
 #if WITH_BANK_ACCESS
 	mii_bank_access_t* access;
 #endif
-	uint16_t	base;		// base address
-	uint16_t	size;		// total size in pages (including VRAM case)
+	uint16_t	base;		// base Aplle II address
+	uint8_t		size;		// total size in pages (including VRAM case), 0..255
 	char*		name;
-	uint32_t 	logical_mem_offset;
+	uint32_t 	logical_mem_offset; // for case .raw[0] not points to .base[0], used .raw[0] <- .base[logical_mem_offset]
 	uint8_t*	raw;			// pointer to direct (raw) RAM/ROM or 
 	vram_t*     vram_desc;      // VRAM descriptor (optional, only for case raw points to vram and .vram == 1)
 	uint8_t		no_alloc: 1,	// not allocated memory (static)
@@ -63,12 +69,10 @@ typedef struct mii_bank_t {
 
 #define RAM_IN_PAGE_ADDR_MASK 0x000000FF // one byte adresses 256 pages
 #define RAM_PAGE_SIZE 0x00000100L
+#define SHIFT_AS_DIV 8
 
-/// TODO:
-inline static
-uint8_t get_ram_page_for(const mii_bank_t* b, const uint32_t addr32) {
-	return addr32 >> 8; // W/A to be raplaced later
-}
+void init_ram_pages_for(vram_t* v, uint8_t* raw, uint32_t raw_size);
+uint8_t get_ram_page_for(const mii_bank_t* b, const uint16_t addr16);
 
 inline static
 void pin_ram_pages_for(
