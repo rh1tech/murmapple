@@ -47,7 +47,7 @@ static uint8_t *g_last_framebuffer = NULL;
 #define CHAR_HEIGHT     8       // Character height in pixels
 #define HEADER_HEIGHT   12      // Title bar height
 #define LINE_HEIGHT     10      // Line spacing
-#define MAX_VISIBLE     16      // Max visible items
+#define MAX_VISIBLE     17      // Max visible items
 #define MAX_DISPLAY_LEN 40      // Max characters for filename display
 
 // Colors (palette indices)
@@ -474,6 +474,36 @@ bool disk_ui_handle_key(uint8_t key) {
             handled = true;
             break;
             
+        case 0xFD:  // Page Up
+            if (ui_state == DISK_UI_SELECT_FILE && g_disk_count > 0) {
+                int step = MAX_VISIBLE / 2;
+                if (selected_file > 0) {
+                    selected_file = (selected_file > step) ? (selected_file - step) : 0;
+
+                    if (selected_file < scroll_offset) {
+                        scroll_offset = selected_file;
+                    }
+                    ui_dirty = true;
+                }
+                handled = true;
+            }
+            break;
+        case 0xFE:  // Page Down
+            if (ui_state == DISK_UI_SELECT_FILE && g_disk_count > 0) {
+                int step = MAX_VISIBLE / 2;
+                if (selected_file < g_disk_count - 1) {
+                    int max_idx = g_disk_count - 1;
+                    selected_file = (selected_file + step < max_idx) ? (selected_file + step) : max_idx;
+
+                    if (selected_file >= scroll_offset + MAX_VISIBLE) {
+                        scroll_offset = selected_file - MAX_VISIBLE + 1;
+                    }
+                    ui_dirty = true;
+                }
+                handled = true;
+            }
+            break;
+
         case 0x08:  // Left arrow / backspace
         case 0x0B:  // Up arrow
             if (ui_state == DISK_UI_SELECT_DRIVE) {
