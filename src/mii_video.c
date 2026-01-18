@@ -2000,16 +2000,16 @@ static const uint16_t floppy_icon_A[10] = {
 };
 
 static const uint16_t floppy_icon_B[10] = {
-	0b1111111100,
-	0b1000000010,
-	0b1001110010,
-	0b1001110010,
-	0b1111111100,
-	0b1000000010,
-	0b1001110010,
-	0b1001110010,
-	0b1000000010,
-	0b1111111100,
+	0b1111111100, // ########..
+	0b1000000110, // #......##.
+	0b1001110110, // #..###.##.
+	0b1001110110, // #..###.##.
+	0b1001100110, // #..##..##.
+	0b1000000010, // #.......#.
+	0b1001111010, // #..####.#.
+	0b1001111010, // #..####.#.
+	0b1000000010, // #.......#.
+	0b1111111100, // ########..
 };
 
 // Draw a simple floppy disk activity indicator in the bottom border
@@ -2029,13 +2029,13 @@ mii_video_draw_floppy_indicator(uint8_t *hdmi_buffer,
 
 	// цвета
 	const uint8_t color_A = 12; // green
-	const uint8_t color_B = 4;  // red/orange
+	const uint8_t color_B = 9;  // orange
 
 	// motor_state:
 	// 0 = none
 	// 1 = drive A
 	// 2 = drive B
-	// 3 = both (если такое возможно)
+	// 3 = both
 
 	if (motor_state & 1) {
 		draw_floppy_icon(
