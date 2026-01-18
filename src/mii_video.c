@@ -1621,8 +1621,6 @@ mii_video_render_text40_mixed_rp2350(
 						c = (int)c + flash;
 
 					const uint8_t *char_data = rom_base + (c << 3);
-					int fb_x_base = x * (8 / 2);
-					uint8_t *fb_row_base = fb + (24 / 2) * fb_width + row * (8 / 2) * fb_width + fb_x_base;
 
 					uint8_t bits = char_data[cy];
 					uint8_t *fb_ptr = line_buffer + x * 4;
@@ -1642,9 +1640,6 @@ mii_video_render_text40_mixed_rp2350(
 
 					const uint8_t *char_data = rom_base + (c << 3);
 					uint8_t bits = char_data[cy];
-					int fb_y = 24 + row * 8 + cy;
-					if (fb_y >= 240) continue;
-					int fb_x_base = x * (4 / 2);
 					uint8_t *fb_ptr = line_buffer + x * 2;
 
 					int bit0 = 0;
@@ -1967,55 +1962,97 @@ mii_video_render(
 // Forward declaration
 int mii_disk2_get_motor_state(void);
 
-// Draw a simple floppy disk activity indicator in the bottom border
-static void
-mii_video_draw_floppy_indicator(uint8_t *hdmi_buffer, int motor_state, uint32_t frame_count)
+static inline void
+draw_floppy_icon(
+	uint8_t *fb,
+	int start_x,
+	int start_y,
+	const uint16_t *icon,
+	uint8_t color)
 {
-	if (motor_state == 0)
-		return;  // No motor active, don't draw
-	
-	// Flash the icon (on/off every 8 frames, approx 130ms at 60Hz) to indicate activity
-	if ((frame_count / 8) % 2 == 0) {
-		return; 
-	}
-	
-	// Draw in bottom-right corner of bottom border
-	// Bottom border starts at row 216 (rows 216-239 = 24 rows)
-	// Icon position: 10x10 pixels (scaled up a bit), right side
-	int start_x = 300;  
-	int start_y = 222;  
-	
-	// Improved floppy disk icon (10x10)
-	// 0 = transparent, 1 = body, 2 = label/shutter
-	static const uint16_t floppy_icon[10] = {
-		0b0111111110, // .########.
-		0b1001110001, // #..###...#
-		0b1001110001, // #..###...#
-		0b1001110001, // #..###...#
-		0b1001110001, // #..###...#
-		0b1000000001, // #........#
-		0b1001111001, // #..####..#
-		0b1001111001, // #..####..#
-		0b1001111001, // #..####..#
-		0b0111111110, // .########.
-	};
-	
-	// Color: Green for drive 1, Red/Orange for drive 2
-	uint8_t body_color = (motor_state == 1) ? 12 : 4;
-	
 	for (int y = 0; y < 10; y++) {
-		uint16_t row = floppy_icon[y];
+		uint16_t row = icon[y];
 		for (int x = 0; x < 10; x++) {
 			if (row & (1 << (9 - x))) {
 				int offset = (start_y + y) * 320 + (start_x + x);
-				// Solid color
-				if (offset & 1) {
-					hdmi_buffer[offset >> 1] |= body_color << 4;
-				} else {
-					hdmi_buffer[offset >> 1] |= body_color;
-				}
+				if (offset & 1)
+					fb[offset >> 1] |= color << 4;
+				else
+					fb[offset >> 1] |= color;
 			}
 		}
+	}
+}
+
+// Improved floppy disk icon (10x10)
+// 0 = black, 1 = body
+static const uint16_t floppy_icon_A[10] = {
+	0b0111111110, // .########.
+	0b1000000001, // #........#
+	0b1001110001, // #..###...#
+	0b1001110001, // #..###...#
+	0b1001110001, // #..###...#
+	0b1000000001, // #........#
+	0b1001111001, // #..####..#
+	0b1001111001, // #..####..#
+	0b1001111001, // #..####..#
+	0b0111111110, // .########.
+};
+
+static const uint16_t floppy_icon_B[10] = {
+	0b1111111100,
+	0b1000000010,
+	0b1001110010,
+	0b1001110010,
+	0b1111111100,
+	0b1000000010,
+	0b1001110010,
+	0b1001110010,
+	0b1000000010,
+	0b1111111100,
+};
+
+// Draw a simple floppy disk activity indicator in the bottom border
+static void
+mii_video_draw_floppy_indicator(uint8_t *hdmi_buffer,
+								int motor_state,
+								uint32_t frame_count)
+{
+	// мигаем раз в 8 кадров
+	if ((frame_count >> 3) & 1)
+		return;
+
+	// позиции
+	const int y = 222;
+	const int xA = 286; // Drive A
+	const int xB = 300; // Drive B
+
+	// цвета
+	const uint8_t color_A = 12; // green
+	const uint8_t color_B = 4;  // red/orange
+
+	// motor_state:
+	// 0 = none
+	// 1 = drive A
+	// 2 = drive B
+	// 3 = both (если такое возможно)
+
+	if (motor_state & 1) {
+		draw_floppy_icon(
+			hdmi_buffer,
+			xA,
+			y,
+			floppy_icon_A,
+			color_A);
+	}
+
+	if (motor_state & 2) {
+		draw_floppy_icon(
+			hdmi_buffer,
+			xB,
+			y,
+			floppy_icon_B,
+			color_B);
 	}
 }
 
