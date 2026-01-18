@@ -46,6 +46,7 @@ static bool sd_mounted = false;
 // reduce stack usage, by global variables
 FIL fp;
 char path[128];
+char selected_dir[128] __scratch_y("selected_dir") = "/apple";
 
 static bool disk_open_image_file(const char *filename, FIL *out_fp, char *out_path, size_t out_path_len) {
     if (!sd_mounted)
@@ -53,13 +54,10 @@ static bool disk_open_image_file(const char *filename, FIL *out_fp, char *out_pa
     if (!filename || !out_fp)
         return false;
 
-    snprintf(path, sizeof(path), "/apple/%s", filename);
+    snprintf(path, sizeof(path), "%s/%s", selected_dir, filename);
     FRESULT fr = f_open(out_fp, path, FA_READ);
     if (fr != FR_OK) {
-        snprintf(path, sizeof(path), "/%s", filename);
-        fr = f_open(out_fp, path, FA_READ);
-        if (fr != FR_OK)
-            return false;
+        return false;
     }
     if (out_path && out_path_len) {
         strncpy(out_path, path, out_path_len - 1);
@@ -577,11 +575,17 @@ int disk_loader_init(void) {
 static int disk_entry_cmp_name(const void *a, const void *b) {
     const disk_entry_t *da = (const disk_entry_t *)a;
     const disk_entry_t *db = (const disk_entry_t *)b;
+
+    // 1. Directories first
+    if (da->type == DIR_TYPE && db->type != DIR_TYPE) return -1;
+    if (da->type != DIR_TYPE && db->type == DIR_TYPE) return  1;
+
+    // 2. Same type -> sort by name
     return strcmp(da->filename, db->filename);
 }
 
-// Scan /apple directory for disk images
-int disk_scan_directory(void) {
+// Scan directory for disk images and directories
+int disk_scan_directory(const char* __restrict path) {
     if (!sd_mounted) {
         printf("SD card not mounted\n");
         return 0;
@@ -591,30 +595,32 @@ int disk_scan_directory(void) {
     FILINFO fno;
     
     g_disk_count = 0;
+
+    int wa_mark = 1;
     
     // First try /apple directory
-    FRESULT fr = f_opendir(&dir, "/apple");
+    FRESULT fr = f_opendir(&dir, path);
     if (fr != FR_OK) {
-        // Try root directory
-        printf("/apple not found, checking root directory\n");
+        // Try root directory (temporary W/A)
+        printf("%s not found, checking root directory\n", path);
         fr = f_opendir(&dir, "/");
         if (fr != FR_OK) {
             printf("Failed to open directory: %d\n", fr);
             return 0;
         }
+        wa_mark = -1; // return negative result, to mark directory was replaced by root
     } else {
-        printf("Scanning /apple directory...\n");
+        printf("Scanning %s directory...\n", path);
     }
     
     while (g_disk_count < MAX_DISK_IMAGES) {
         fr = f_readdir(&dir, &fno);
         if (fr != FR_OK || fno.fname[0] == 0) break;
-        
-        // Skip directories
-        if (fno.fattrib & AM_DIR) continue;
-        
-        // Check if it's a disk image
-        disk_type_t type = disk_get_type(fno.fname);
+
+        disk_type_t type;
+        if (fno.fattrib & AM_DIR) type = DIR_TYPE;
+        else type = disk_get_type(fno.fname);
+
         if (type == DISK_TYPE_UNKNOWN) continue;
         
         // Add to list
@@ -640,7 +646,7 @@ int disk_scan_directory(void) {
             disk_entry_cmp_name
         );
     }    
-    return g_disk_count;
+    return wa_mark * g_disk_count;
 }
 
 // Select a disk image for a drive (image is read from SD on mount)
