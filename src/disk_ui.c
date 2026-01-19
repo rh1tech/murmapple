@@ -384,7 +384,14 @@ static void handle_disk_loaded(void) {
     disk_ui_hide();
     if (g_mii) {
         int preserve_state = (selected_action == 1) ? 1 : 0;  // INSERT preserves state
-        if (disk_mount_to_emulator(selected_drive, g_mii, g_disk2_slot, preserve_state) == 0) {
+        if (0 == disk_mount_to_emulator(
+                selected_drive,
+                g_mii,
+                g_disk2_slot,
+                preserve_state,
+                !g_loaded_disks[selected_drive].write_back
+            )
+        ) {
             printf("Disk UI: disk mounted successfully\n");
             
             if (selected_action == 0) {  // BOOT
@@ -528,7 +535,7 @@ bool disk_ui_handle_key(uint8_t key) {
                     
                     disk_ui_show_loading();
                     int base = has_parent_dir ? 1 : 0;
-                    if (disk_load_image(selected_drive, selected_file - base) == 0) {
+                    if (disk_load_image(selected_drive, selected_file - base, g_loaded_disks[selected_drive].write_back) == 0) {
                         handle_disk_loaded();
                     } else {
                         // Failed to load - go back to file selection
@@ -847,11 +854,15 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         y += LINE_HEIGHT + 8;
 
         // Read-only checkbox (drive state)
-        bool read_only =  !g_loaded_disks[drive].write_back;
-        char ro_label[32];
-        snprintf(ro_label, sizeof(ro_label), "[%c] Read-only (SPACE)", read_only ? 'x' : ' ');
-        draw_string(framebuffer, width, content_x, y, ro_label, COLOR_TEXT);
-        y += LINE_HEIGHT + 4;
+        if (g_disk_list[sel_file - base].type = DISK_TYPE_DSK) {
+            bool read_only = !g_loaded_disks[drive].write_back;
+            char ro_label[32];
+            snprintf(ro_label, sizeof(ro_label), "[%c] Read-only (Space button to change)", read_only ? 'x' : ' ');
+            draw_string(framebuffer, width, content_x, y, ro_label, COLOR_TEXT);
+            y += LINE_HEIGHT + 4;
+        } else {
+            g_loaded_disks[drive].write_back = false;
+        }
         
         // Action options
         draw_string(framebuffer, width, content_x, y, "Select action:", COLOR_TEXT);

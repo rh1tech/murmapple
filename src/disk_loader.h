@@ -62,7 +62,7 @@ int disk_scan_directory(const char* __restrict path);
 // drive: 0 or 1 (Drive 1 or Drive 2)
 // index: index into g_disk_list
 // Returns 0 on success, -1 on error
-int disk_load_image(int drive, int index);
+int disk_load_image(int drive, int index, bool write);
 
 // Unload a disk image (clears selection)
 void disk_unload_image(int drive);
@@ -83,7 +83,7 @@ struct mii_t;
 // slot: slot number where disk2 card is installed (usually 6)
 // preserve_state: if true, keeps motor/head position (for disk swap during game)
 // Returns 0 on success, -1 on error
-int disk_mount_to_emulator(int drive, struct mii_t *mii, int slot, int preserve_state);
+int disk_mount_to_emulator(int drive, struct mii_t *mii, int slot, int preserve_state, bool read_only);
 
 // Eject a disk from the emulator
 // drive: 0 or 1 (Drive 1 or Drive 2)

@@ -48,14 +48,14 @@ FIL fp;
 char path[128];
 char selected_dir[128] __scratch_y("selected_dir") = "/apple";
 
-static bool disk_open_image_file(const char *filename, FIL *out_fp, char *out_path, size_t out_path_len) {
+static bool disk_open_image_file(const char *filename, FIL *out_fp, char *out_path, size_t out_path_len, bool write) {
     if (!sd_mounted)
         return false;
     if (!filename || !out_fp)
         return false;
 
     snprintf(path, sizeof(path), "%s/%s", selected_dir, filename);
-    FRESULT fr = f_open(out_fp, path, FA_READ);
+    FRESULT fr = f_open(out_fp, path, write ? (FA_READ | FA_WRITE) : FA_READ);
     if (fr != FR_OK) {
         return false;
     }
@@ -650,7 +650,7 @@ int disk_scan_directory(const char* __restrict path) {
 }
 
 // Select a disk image for a drive (image is read from SD on mount)
-int disk_load_image(int drive, int index) {
+int disk_load_image(int drive, int index, bool write) {
     if (drive < 0 || drive > 1) {
         printf("Invalid drive: %d\n", drive);
         return -1;
@@ -667,7 +667,7 @@ int disk_load_image(int drive, int index) {
     memset(disk, 0, sizeof(*disk));
 
     // Validate the file exists by opening it, then close immediately.
-    if (!disk_open_image_file(entry->filename, &fp, path, sizeof(path))) {
+    if (!disk_open_image_file(entry->filename, &fp, path, sizeof(path), write)) {
         printf("Failed to open image for %s\n", entry->filename);
         return -1;
     }
@@ -679,7 +679,7 @@ int disk_load_image(int drive, int index) {
     strncpy(disk->filename, entry->filename, MAX_FILENAME_LEN - 1);
     disk->filename[MAX_FILENAME_LEN - 1] = '\0';
     disk->loaded = true;
-    disk->write_back = false;
+    disk->write_back = write;
 
     printf("Selected %s for drive %d (%lu bytes)\n", entry->filename, drive + 1, (unsigned long)entry->size);
     
@@ -732,7 +732,7 @@ static mii_dd_file_t g_dd_files[2] = {0};
 
 // Mount a loaded disk image to the emulator
 // preserve_state: if true, keeps motor/head position for disk swap during game
-int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state) {
+int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, bool read_only) {
     if (drive < 0 || drive > 1) {
         printf("Invalid drive: %d\n", drive);
         return -1;
@@ -759,14 +759,14 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state) 
     memset(file, 0, sizeof(*file));
     file->pathname = disk->filename;  // Just point to our filename
     file->format = disk_type_to_mii_format(disk->type, disk->filename);
-    file->read_only = 1;  // Read-only: no in-memory backing for writes
+    file->read_only = read_only;  // Read-only: no in-memory backing for writes
     file->size = disk->size;
     
     printf("Mounting %s to drive %d (format=%d, size=%lu, preserve=%d)\n",
            disk->filename, drive + 1, file->format, (unsigned long)file->size, preserve_state);
 
     // Open the image on SD
-    if (!disk_open_image_file(disk->filename, &fp, path, sizeof(path))) {
+    if (!disk_open_image_file(disk->filename, &fp, path, sizeof(path), !read_only)) {
         printf("Failed to open disk image %s\n", disk->filename);
         return -1;
     }
@@ -852,7 +852,7 @@ void disk_reload_track(uint8_t drive, uint8_t track_id, mii_t* mii) {
         printf("Failed to get floppy structure for drive %d (slot %d)\n", drive + 1, g_disk2_slot);
         return;
     }
-    if (!disk_open_image_file(disk->filename, &fp, path, sizeof(path))) {
+    if (!disk_open_image_file(disk->filename, &fp, path, sizeof(path), disk->write_back)) {
         printf("Failed to open disk image %s\n", disk->filename);
         return;
     }
