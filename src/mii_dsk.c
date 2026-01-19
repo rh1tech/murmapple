@@ -134,10 +134,10 @@ mii_floppy_decode_sector(
 void
 mii_floppy_dsk_render_sector(
 		uint8_t vol, uint8_t track, uint8_t sector,
-		const uint8_t *data,
-		mii_floppy_track_t *dst,
-		uint8_t * track_data )
-{
+		const uint8_t *data, // whole track extracted from .DSK-file (6656 bytes buffer)
+		mii_floppy_track_t *dst, // destination descriptor
+		uint8_t * track_data // destination buffer (current track bitstream)
+) {
 	unsigned int gap;
 
 //	if (track == 0 )
@@ -200,6 +200,84 @@ mii_floppy_dsk_render_sector(
 	mii_floppy_write_track_bits(dst, track_data, 0xdeaaeb, 24);
 	// Gap 3
 	mii_floppy_write_track_bits(dst, track_data, 0xFF << 2, 10);
+}
+
+void
+mii_floppy_dsk_recover_sector(
+        uint8_t vol,
+        uint8_t track,
+        uint8_t sector,
+        uint8_t *data,                 // whole DSK track buffer (16*256 bytes)
+        const mii_floppy_track_t *src, // source descriptor
+        const uint8_t *track_data      // source bitstream (curr_track_data)
+) {
+    (void)vol;
+    (void)track;
+
+    if (!data || !src || !track_data) return;
+    if (sector >= 16) return;
+    if (!src->has_map) return;
+
+    /* bit position of DATA FIELD start (before D5 AA AD) */
+    uint32_t bitpos = src->map.sector[sector].data;
+    if (!bitpos) return;
+
+    /* skip D5 AA AD (24 bits), render_sector guaranteed byte alignment */
+    uint32_t bytepos = (bitpos + 24) >> 3;
+
+    /* read encoded GCR bytes: 342 data + 1 checksum */
+    const uint8_t *enc = &track_data[bytepos];
+
+    uint8_t nibbles[342];
+    uint8_t last = 0;
+
+    /* undo TRANS62 + XOR chain */
+    for (int i = 0; i < 342; i++) {
+        uint8_t six = DETRANS62[enc[i]];
+        uint8_t val = six ^ last;
+        nibbles[i] = val;
+        last = val;
+    }
+
+    /* checksum nibble must equal last */
+    if (DETRANS62[enc[342]] != last)
+        return;
+
+    /* CRC check — exactly symmetric to render_sector */
+    if (mii_floppy_crc(-1, nibbles, 342) != src->map.sector[sector].crc)
+        return;
+
+    /*
+     * Reverse 6&2 packing
+     *
+     * nibbles layout:
+     *   [0x00 .. 0x55]  — low-bit accumulators (86 bytes)
+     *   [0x56 .. 0x157] — high 6 bits (0x102 bytes)
+     *
+     * Each low byte was filled MSB→LSB by three visits.
+     */
+    uint8_t *out = &data[(uint32_t)sector * 256];
+
+    uint8_t visit[0x56] = {0};
+    int i2 = 0x55;
+
+    for (int i6 = 0x101; i6 >= 0; --i6) {
+        uint8_t hi6 = nibbles[0x56 + i6] & 0x3F;
+
+        uint8_t v = visit[i2]++;
+        if (v >= 3) return;  // corrupted layout
+
+        uint8_t low_acc = nibbles[i2];
+        uint8_t pair = (low_acc >> (4 - 2 * v)) & 0x03;
+
+        /* pair = (bit0<<1 | bit1)  → restore original low2 */
+        uint8_t low2 = ((pair & 1) << 1) | ((pair >> 1) & 1);
+
+        out[i6 & 0xFF] = (hi6 << 2) | low2;
+
+        if (--i2 < 0)
+            i2 = 0x55;
+    }
 }
 
 void

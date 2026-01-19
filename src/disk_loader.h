@@ -67,10 +67,6 @@ int disk_load_image(int drive, int index, bool write);
 // Unload a disk image (clears selection)
 void disk_unload_image(int drive);
 
-// Write back any modified disk image to SD card
-// NOTE: not supported in the no-PSRAM loader; returns an error if called.
-int disk_writeback(int drive);
-
 // Get disk image type from filename extension
 disk_type_t disk_get_type(const char *filename);
 

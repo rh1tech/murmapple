@@ -129,7 +129,10 @@ _mii_floppy_lss_cb(
 		mii_t * mii,
 		void * param );
 
-void disk_reload_track(uint8_t drive, uint8_t track_id, mii_t* mii); // disk_loader.c
+// in disk_loader.c :
+void disk_reload_track(uint8_t drive, uint8_t track_id, mii_t* mii);
+// Write back any modified disk image track to SD card
+void disk_write_track(uint8_t drive, uint8_t track_id, mii_t* mii);
 
 static uint8_t
 _mii_disk2_switch_track(
@@ -151,6 +154,12 @@ _mii_disk2_switch_track(
 	if (track_id != track_id_new && track_id != MII_FLOPPY_NOISE_TRACK) {
 		if (track_id == 0 && c->vcd)
 			_mii_disk2_vcd_debug(c, 0);
+		if (!f->write_protected &&
+        	track_id < MII_FLOPPY_TRACK_COUNT &&
+        	f->tracks[track_id].dirty
+		) {
+			disk_write_track(c->selected, track_id, mii);
+		}
 	}
 	if (track_id_new >= MII_FLOPPY_TRACK_COUNT)
 		track_id_new = MII_FLOPPY_NOISE_TRACK;

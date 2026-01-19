@@ -31,6 +31,9 @@ disk_entry_t* g_disk_list = (disk_entry_t*)vram;//[MAX_DISK_IMAGES];
 int g_disk_count = 0;
 loaded_disk_t g_loaded_disks[2] = {0};
 
+// Static mii_dd_file_t structures for the two drives
+static mii_dd_file_t g_dd_files[2] = {0};
+
 // FatFS objects
 static FATFS fs;
 static bool sd_mounted = false;
@@ -699,13 +702,6 @@ void disk_unload_image(int drive) {
     printf("Unloaded drive %d\n", drive + 1);
 }
 
-// Write back modified disk image to SD card
-int disk_writeback(int drive) {
-    if (drive < 0 || drive > 1) return -1;
-    printf("%s: writeback not supported in this loader\n", __func__);
-    return -1;
-}
-
 // Convert our disk_type_t to mii_dd format enum
 static uint8_t disk_type_to_mii_format(disk_type_t type, const char *filename) {
     switch (type) {
@@ -727,8 +723,7 @@ static uint8_t disk_type_to_mii_format(disk_type_t type, const char *filename) {
     }
 }
 
-// Static mii_dd_file_t structures for the two drives
-static mii_dd_file_t g_dd_files[2] = {0};
+void disk_write_track(uint8_t drive, uint8_t track_id, mii_t* mii);
 
 // Mount a loaded disk image to the emulator
 // preserve_state: if true, keeps motor/head position for disk swap during game
@@ -754,6 +749,15 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
     
     mii_floppy_t *floppy = floppies[drive];
     mii_dd_file_t *file = &g_dd_files[drive];
+
+    /* flush previous disk track before replacing it */
+    uint8_t old_track = floppy->track_id[floppy->qtrack];
+    if (!floppy->write_protected &&
+        old_track < MII_FLOPPY_TRACK_COUNT &&
+        floppy->tracks[old_track].dirty)
+    {
+        disk_write_track(drive, old_track, mii);
+    }
     
     // Set up the mii_dd_file_t structure (no file->map backing on RP2350)
     memset(file, 0, sizeof(*file));
@@ -886,6 +890,134 @@ void disk_reload_track(uint8_t drive, uint8_t track_id, mii_t* mii) {
     mii_video_reset_vbl_timer(mii);
 }
 
+static int
+disk_write_floppy_dsk_track_to_fatfs(
+    mii_floppy_t   *floppy,
+    mii_dd_file_t  *file,
+    FIL            *fp,
+    uint8_t         track_id
+) {
+    printf("write track: %d\n", track_id);
+
+    if (track_id >= DSK_TRACKS)
+        return 0;
+
+    mii_floppy_track_t *src = &floppy->tracks[track_id];
+
+    /* nothing to do */
+    if (!src->dirty || !src->has_map)
+        return 0;
+
+    const char *dot = strrchr(file->pathname, '.');
+    const uint8_t *secmap = DO_SECMAP;
+    if (dot && (!strcasecmp(dot, ".po") || !strcasecmp(dot, ".PO")))
+        secmap = PO_SECMAP;
+
+    uint8_t sector_buf[DSK_SECTOR_SIZE];
+
+    for (int phys_sector = 0; phys_sector < DSK_SECTORS; phys_sector++) {
+        const uint8_t dos_sector = secmap[phys_sector];
+        const uint32_t off =
+            (uint32_t)((DSK_SECTORS * track_id + dos_sector) * DSK_SECTOR_SIZE);
+
+        /* reconstruct sector from bitstream */
+        memset(sector_buf, 0, sizeof(sector_buf));
+        mii_floppy_dsk_recover_sector(
+            254,                    /* volume */
+            track_id,
+            phys_sector,
+            sector_buf,
+            src,
+            floppy->curr_track_data
+        );
+
+        /* write back to DSK */
+        FRESULT fr = f_lseek(fp, off);
+        if (fr != FR_OK)
+            goto fail;
+
+        UINT bw = 0;
+        fr = f_write(fp, sector_buf, sizeof(sector_buf), &bw);
+        if (fr != FR_OK || bw != sizeof(sector_buf))
+            goto fail;
+    }
+
+    /* mark track clean */
+    src->dirty = 0;
+    floppy->seed_saved = floppy->seed_dirty;
+    return 0;
+
+fail:
+    return -1;
+}
+
+static int
+disk_write_floppy_nib_track_to_fatfs(
+    mii_floppy_t *floppy,
+    FIL *fp,
+    uint8_t track_id
+) {
+    /// unsupported for now
+    return 0;
+}
+
+static int
+disk_write_floppy_woz_track_to_fatfs(
+    mii_floppy_t *floppy,
+    FIL *fp,
+    uint8_t track_id
+) {
+    /// unsupported for now
+    return 0;
+}
+
+void disk_write_track(uint8_t drive, uint8_t track_id, mii_t* mii) {
+    loaded_disk_t *disk = &g_loaded_disks[drive];
+    if (!disk->loaded || !disk->filename[0]) {
+        printf("No disk loaded in drive %d\n", drive + 1);
+        return;
+    }
+    // Get the floppy structures from the disk2 card
+    mii_floppy_t *floppies[2] = {NULL, NULL};
+    int res = mii_slot_command(mii, g_disk2_slot, MII_SLOT_D2_GET_FLOPPY, floppies);
+    if (res < 0 || !floppies[drive]) {
+        printf("Failed to get floppy structure for drive %d (slot %d)\n", drive + 1, g_disk2_slot);
+        return;
+    }
+    if (!disk_open_image_file(disk->filename, &fp, path, sizeof(path), disk->write_back)) {
+        printf("Failed to open disk image %s\n", disk->filename);
+        return;
+    }
+    mii_floppy_t *floppy = floppies[drive];
+    mii_dd_file_t *file = &g_dd_files[drive];
+    res = -1;
+    switch (file->format) {
+        case MII_DD_FILE_DSK:
+        case MII_DD_FILE_DO:
+        case MII_DD_FILE_PO:
+            res = disk_write_floppy_dsk_track_to_fatfs(floppy, file, &fp, track_id);
+            break;
+        case MII_DD_FILE_NIB:
+            res = disk_write_floppy_nib_track_to_fatfs(floppy, &fp, track_id);
+            break;
+        case MII_DD_FILE_WOZ:
+            res = disk_write_floppy_woz_track_to_fatfs(floppy, &fp, track_id);
+            break;
+        default:
+            printf("%s: unsupported format %d\n", __func__, file->format);
+            res = -1;
+            break;
+    }
+    f_close(&fp);
+
+    if (res < 0) {
+        printf("Failed to load disk image track %d to floppy: %d\n", track_id, res);
+    }
+    // Reset VBL timer after disk loading - the long SD card read
+    // may have caused the timer to accumulate negative cycles
+    mii_video_reset_vbl_timer(mii);
+}
+
 // Eject a disk from the emulator
 void disk_eject_from_emulator(int drive, mii_t *mii, int slot) {
     if (drive < 0 || drive > 1) return;
@@ -896,6 +1028,15 @@ void disk_eject_from_emulator(int drive, mii_t *mii, int slot) {
     if (res < 0 || !floppies[drive]) {
         printf("Failed to get floppy structure for drive %d\n", drive + 1);
         return;
+    }
+    
+    /* 🔴 flush current track before eject */
+    uint8_t track_id = floppies[drive]->track_id[floppies[drive]->qtrack];
+    if (!floppies[drive]->write_protected &&
+        track_id < MII_FLOPPY_TRACK_COUNT &&
+        floppies[drive]->tracks[track_id].dirty)
+    {
+        disk_write_track(drive, track_id, mii);
     }
     
     // Re-initialize the floppy (clears all data, makes it "empty")

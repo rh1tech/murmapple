@@ -379,6 +379,8 @@ void disk_ui_show_loading(void) {
     ui_rendered = false;
 }
 
+static bool read_only = true;
+
 // Handle loading complete - mount disk and perform action
 static void handle_disk_loaded(void) {
     disk_ui_hide();
@@ -389,7 +391,7 @@ static void handle_disk_loaded(void) {
                 g_mii,
                 g_disk2_slot,
                 preserve_state,
-                !g_loaded_disks[selected_drive].write_back
+                read_only
             )
         ) {
             printf("Disk UI: disk mounted successfully\n");
@@ -514,6 +516,8 @@ bool disk_ui_handle_key(uint8_t key) {
                     } else {
                         // file -> action menu
                         ui_state = DISK_UI_SELECT_ACTION;
+                        /// read current prefereces for this drive, may be overriden later
+                        read_only = !g_loaded_disks[selected_drive].write_back;
                         selected_action = 0;
                         ui_dirty = true;
                         MII_DEBUG_PRINTF("Disk UI: selecting action for file %d\n", selected_file);
@@ -535,7 +539,7 @@ bool disk_ui_handle_key(uint8_t key) {
                     
                     disk_ui_show_loading();
                     int base = has_parent_dir ? 1 : 0;
-                    if (disk_load_image(selected_drive, selected_file - base, g_loaded_disks[selected_drive].write_back) == 0) {
+                    if (disk_load_image(selected_drive, selected_file - base, !read_only) == 0) {
                         handle_disk_loaded();
                     } else {
                         // Failed to load - go back to file selection
@@ -643,23 +647,18 @@ bool disk_ui_handle_key(uint8_t key) {
             if (ui_state == DISK_UI_SELECT_ACTION) {
                 int base = has_parent_dir ? 1 : 0;
                 int idx  = selected_file - base;
-
                 if (idx >= 0 && idx < g_disk_count) {
                     disk_entry_t *e = &g_disk_list[idx];
-
                     // Only .dsk supports RW in this iteration
                     if (e->type == DISK_TYPE_DSK) {
                         loaded_disk_t *d = &g_loaded_disks[selected_drive];
-
                         // Toggle write-back flag
-                        d->write_back = !d->write_back;
-
+                        read_only = !read_only;
                         MII_DEBUG_PRINTF(
                             "Disk UI: drive %d Read-Only -> %s\n",
                             selected_drive + 1,
-                            d->write_back ? "OFF" : "ON"
+                            read_only ? "ON" : "OFF"
                         );
-
                         ui_dirty = true;
                         handled = true;
                     }
@@ -854,15 +853,10 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         y += LINE_HEIGHT + 8;
 
         // Read-only checkbox (drive state)
-        if (g_disk_list[sel_file - base].type = DISK_TYPE_DSK) {
-            bool read_only = !g_loaded_disks[drive].write_back;
-            char ro_label[32];
-            snprintf(ro_label, sizeof(ro_label), "[%c] Read-only (Space button to change)", read_only ? 'x' : ' ');
-            draw_string(framebuffer, width, content_x, y, ro_label, COLOR_TEXT);
-            y += LINE_HEIGHT + 4;
-        } else {
-            g_loaded_disks[drive].write_back = false;
-        }
+        char ro_label[32];
+        snprintf(ro_label, sizeof(ro_label), "[%c] Read-only (SPACE to change)", read_only ? 'x' : ' ');
+        draw_string(framebuffer, width, content_x, y, ro_label, COLOR_TEXT);
+        y += LINE_HEIGHT + 4;
         
         // Action options
         draw_string(framebuffer, width, content_x, y, "Select action:", COLOR_TEXT);
