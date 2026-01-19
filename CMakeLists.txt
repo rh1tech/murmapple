@@ -25,6 +25,9 @@ set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
 # CPU overclock configuration (252, 378, 504 MHz)
 set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
+#set(VIDEO_HDMI ON)
+set(VIDEO_VGA ON)
+
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 #set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
 
@@ -123,10 +126,20 @@ if (PSRAM_SPEED)
     )
 endif()
 
-add_library(drivers
-    drivers/HDMI.c
-    drivers/nespad/nespad.c
-)
+if (VIDEO_HDMI)
+    add_library(drivers
+        drivers/HDMI.c
+        drivers/nespad/nespad.c
+    )
+endif()
+
+if (VIDEO_VGA)
+    add_library(drivers
+        drivers/vga.c
+        drivers/nespad/nespad.c
+    )
+endif()
+
 target_include_directories(drivers PUBLIC drivers drivers/nespad src)
 target_compile_definitions(drivers PRIVATE
     BOARD_${BOARD_VARIANT}
@@ -205,6 +218,20 @@ target_compile_definitions(${BUILD_NAME} PRIVATE
 #    FEATURE_AUDIO_I2S=1
     FEATURE_AUDIO_PWM=1
 )
+
+if (VIDEO_HDMI)
+    target_compile_definitions(${BUILD_NAME} PRIVATE
+        VIDEO_HDMI
+        VIDEO=HDMI
+    )
+endif()
+
+if (VIDEO_VGA)
+    target_compile_definitions(${BUILD_NAME} PRIVATE
+        VIDEO_VGA
+        VIDEO=VGA
+    )
+endif()
 
 if(PS2_KEYBOARD_ENABLED)
     target_compile_definitions(${BUILD_NAME} PRIVATE ENABLE_PS2_KEYBOARD=1)
