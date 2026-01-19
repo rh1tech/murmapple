@@ -25,8 +25,8 @@ set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
 # CPU overclock configuration (252, 378, 504 MHz)
 set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
-#set(VIDEO_HDMI ON)
-set(VIDEO_VGA ON)
+set(VIDEO_HDMI ON)
+#set(VIDEO_VGA ON)
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 #set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
@@ -215,8 +215,8 @@ target_compile_definitions(${BUILD_NAME} PRIVATE
     PICO_AUDIO_I2S_DMA_CHANNEL=6
     PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
     PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
-#    FEATURE_AUDIO_I2S=1
-    FEATURE_AUDIO_PWM=1
+    FEATURE_AUDIO_I2S=1
+#    FEATURE_AUDIO_PWM=1
 )
 
 if (VIDEO_HDMI)
