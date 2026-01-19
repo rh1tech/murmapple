@@ -631,7 +631,35 @@ bool disk_ui_handle_key(uint8_t key) {
             }
             handled = true;
             break;
-            
+
+        case ' ':  // Space = toggle Read-Only
+            if (ui_state == DISK_UI_SELECT_ACTION) {
+                int base = has_parent_dir ? 1 : 0;
+                int idx  = selected_file - base;
+
+                if (idx >= 0 && idx < g_disk_count) {
+                    disk_entry_t *e = &g_disk_list[idx];
+
+                    // Only .dsk supports RW in this iteration
+                    if (e->type == DISK_TYPE_DSK) {
+                        loaded_disk_t *d = &g_loaded_disks[selected_drive];
+
+                        // Toggle write-back flag
+                        d->write_back = !d->write_back;
+
+                        MII_DEBUG_PRINTF(
+                            "Disk UI: drive %d Read-Only -> %s\n",
+                            selected_drive + 1,
+                            d->write_back ? "OFF" : "ON"
+                        );
+
+                        ui_dirty = true;
+                        handled = true;
+                    }
+                }
+            }
+            break;            
+
         case '1':
             if (ui_state == DISK_UI_SELECT_DRIVE) {
                 selected_drive = 0;
@@ -817,6 +845,13 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         snprintf(file_label, sizeof(file_label), "File: %.40s", g_disk_list[sel_file - base].filename);
         draw_string_truncated(framebuffer, width, content_x, y, file_label, max_chars, COLOR_TEXT);
         y += LINE_HEIGHT + 8;
+
+        // Read-only checkbox (drive state)
+        bool read_only =  !g_loaded_disks[drive].write_back;
+        char ro_label[32];
+        snprintf(ro_label, sizeof(ro_label), "[%c] Read-only (SPACE)", read_only ? 'x' : ' ');
+        draw_string(framebuffer, width, content_x, y, ro_label, COLOR_TEXT);
+        y += LINE_HEIGHT + 4;
         
         // Action options
         draw_string(framebuffer, width, content_x, y, "Select action:", COLOR_TEXT);
@@ -827,7 +862,7 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         y += LINE_HEIGHT + 2;
         
         draw_menu_item(framebuffer, width, content_x + 10, y, content_width - 20,
-                      "Insert - Swap disk (no reboot)", max_chars - 4, sel_action == 1);
+                      "Insert - Replace disk (no reboot)", max_chars - 4, sel_action == 1);
         y += LINE_HEIGHT + 2;
         
         draw_menu_item(framebuffer, width, content_x + 10, y, content_width - 20,
