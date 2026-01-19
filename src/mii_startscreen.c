@@ -16,8 +16,8 @@
 #include <string.h>
 
 // Get actual screen dimensions from HDMI driver
-#define SCREEN_WIDTH  ((int)graphics_get_width())
-#define SCREEN_HEIGHT ((int)graphics_get_height())
+#define SCREEN_WIDTH  320
+#define SCREEN_HEIGHT 240
 
 // UI dimensions
 #define CHAR_WIDTH      6
