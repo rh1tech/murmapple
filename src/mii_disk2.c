@@ -839,8 +839,15 @@ _mii_floppy_lss_cb(
 		ticks--;
 	}
 #else
-	// Use optimized batch processing
-	_mii_disk2_lss_batch(c, f, track, bit_count, ticks);
+	// если пишем (Q7=1) — используем точный tick, иначе быстрый batch
+	if (c->lss_mode & (1 << Q7_WRITE_BIT)) {
+		while (ticks-- > 0) {
+			_mii_disk2_lss_tick(c);
+		}
+	} else {
+		// Use optimized batch processing
+		_mii_disk2_lss_batch(c, f, track, bit_count, ticks);
+	}
 #endif
 	return ret;
 }

@@ -532,43 +532,26 @@ mii_floppy_write_track(
 
 int
 mii_floppy_update_tracks(
-		mii_floppy_t *f,
-		mii_dd_file_t *file )
+        mii_floppy_t *f,
+        mii_dd_file_t *file )
 {
-	return -1;
-	#if 0
-	if (f->write_protected & MII_FLOPPY_WP_RO_FORMAT)
-		return -1;
-	if (f->write_protected & MII_FLOPPY_WP_RO_FILE)
-		return -1;
-	if (f->seed_dirty == f->seed_saved)
-		return 0;
-	for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++) {
-		if (!f->tracks[i].dirty)
-			continue;
-		printf("%s: track %d is dirty, saving\n", __func__, i);
-		switch (file->format) {
-			case MII_DD_FILE_NIB:
-				mii_floppy_write_track(f, file, i, _mii_floppy_nib_write_sector);
-				break;
-			case MII_DD_FILE_WOZ:
-				mii_floppy_woz_write_track(f, file, i);
-//				printf("%s: WOZ track %d updated\n", __func__, i);
-				break;
-			case MII_DD_FILE_DSK:
-			case MII_DD_FILE_PO:
-			case MII_DD_FILE_DO:
-				mii_floppy_write_track(f, file, i, _mii_floppy_dsk_write_sector);
-//				printf("%s: DSK track %d updated\n", __func__, i);
-				break;
-			default:
-				printf("%s: unsupported format %d\n", __func__, file->format);
-		}
-		f->tracks[i].dirty = 0;
-	}
-	f->seed_saved = f->seed_dirty;
-	return 0;
-	#endif
+    if (f->write_protected & MII_FLOPPY_WP_RO_FORMAT)
+        return -1;
+    if (f->write_protected & MII_FLOPPY_WP_RO_FILE)
+        return -1;
+    if (f->seed_dirty == f->seed_saved)
+        return 0;
+
+    for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++) {
+        if (!f->tracks[i].dirty)
+            continue;
+
+        mii_floppy_write_track(f, file, i, _mii_floppy_dsk_write_sector);
+        f->tracks[i].dirty = 0;
+    }
+
+    f->seed_saved = f->seed_dirty;
+    return 0;
 }
 
 int
