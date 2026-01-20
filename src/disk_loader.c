@@ -908,24 +908,18 @@ disk_write_floppy_dsk_track_to_fatfs(
     if (!src->dirty || !src->has_map)
         return 0;
 
-    const char *dot = strrchr(file->pathname, '.');
-    const uint8_t *secmap = DO_SECMAP;
-    if (dot && (!strcasecmp(dot, ".po") || !strcasecmp(dot, ".PO")))
-        secmap = PO_SECMAP;
-
     uint8_t sector_buf[DSK_SECTOR_SIZE];
 
     for (int phys_sector = 0; phys_sector < DSK_SECTORS; phys_sector++) {
-        const uint8_t dos_sector = secmap[phys_sector];
-        const uint32_t off =
-            (uint32_t)((DSK_SECTORS * track_id + dos_sector) * DSK_SECTOR_SIZE);
+        const uint8_t sector_id = phys_sector; // как индекс карты трека
+        const uint32_t off = src->map.sector[sector_id].dsk_position;
 
         /* reconstruct sector from bitstream */
         memset(sector_buf, 0, sizeof(sector_buf));
         mii_floppy_dsk_recover_sector(
             254,                    /* volume */
             track_id,
-            phys_sector,
+            sector_id,
             sector_buf,
             src,
             floppy->curr_track_data
@@ -942,6 +936,8 @@ disk_write_floppy_dsk_track_to_fatfs(
             goto fail;
     }
 
+    if (f_sync(fp) != FR_OK)
+        goto fail;    
     /* mark track clean */
     src->dirty = 0;
     floppy->seed_saved = floppy->seed_dirty;
