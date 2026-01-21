@@ -14,23 +14,28 @@ Both boards provide all necessary peripherals out of the box—no additional wir
 ## Features
 
 - Full Apple IIe emulation with 65C02 CPU
-- Native 320×240 HDMI video output via PIO
+- Native 320×240 video output via PIO (HDMI or VGA)
 - All video modes: Text, Lo-Res, Hi-Res, Double Hi-Res
-- SD card support for DSK, NIB, and WOZ disk images
+- SD card support for DSK, NIB, WOZ, and BDSK disk images
+- Disk write-back support (saves changes to .bdsk files)
 - PS/2 keyboard input
 - USB keyboard input (via native USB Host)
 - NES/USB gamepad support (via USB HID)
 - USB hub support for multiple devices
-- I2S audio output for speaker and Mockingboard sound
+- Audio output via I2S (external DAC) or PWM
 
 ## Hardware Requirements
 
 - **Raspberry Pi Pico** (RP2040), or **Raspberry Pi Pico 2** (RP2350), or compatible board
-- **HDMI connector** (directly connected via resistors, no HDMI encoder needed)
+- **Video output** (choose one):
+  - **HDMI connector** (directly connected via resistors, no HDMI encoder needed)
+  - **VGA connector** (accent resistor DAC)
 - **SD card module** (SPI mode)
 - **PS/2 keyboard** (directly connected) — OR —
 - **USB keyboard** (via native USB port, hub supported)
-- **I2S DAC module** (e.g., TDA1387 or PCM5102) for audio output
+- **Audio output** (choose one):
+  - **I2S DAC module** (e.g., TDA1387 or PCM5102) — recommended for best quality
+  - **PWM audio** — no additional hardware needed, directly to speaker/amplifier
 
 > **Note:** When USB HID is enabled, the native USB port is used for keyboard input. USB serial console (CDC) is disabled in this mode; use UART for debug output.
 
@@ -71,36 +76,59 @@ Two GPIO layouts are supported: **M1** and **M2**.
 | BCLK   | 27      | 10      |
 | LRCLK  | 28      | 11      |
 
+### VGA (accent resistor DAC)
+| Signal | M1 GPIO | M2 GPIO |
+|--------|---------|---------|
+| HSYNC  | 6       | 12      |
+| VSYNC  | 7       | 13      |
+| R0     | 8       | 14      |
+| R1     | 9       | 15      |
+| G0     | 10      | 16      |
+| G1     | 11      | 17      |
+| B0     | 12      | 18      |
+| B1     | 13      | 19      |
+
+> **Note:** VGA uses the same GPIO pins as HDMI. Choose the appropriate firmware based on your video output hardware.
+
 ## Firmware Versions
 
-MurmApple is available in multiple configurations:
+MurmApple is available in multiple configurations based on your hardware setup:
 
-### RP2350 with PSRAM (Recommended)
+### Video Output Options
 
-| Speed | CPU Clock | PSRAM Clock | Description |
-|-------|-----------|-------------|-------------|
-| Stock | 252 MHz   | 100 MHz | Default, stable operation |
-| Medium OC | 378 MHz | 133 MHz | Moderate overclock, improved performance |
-| Max OC | 504 MHz  | 166 MHz | Maximum overclock, best performance |
+| Option | Description |
+|--------|-------------|
+| **HDMI** | Digital video via PIO-driven HDMI (no encoder chip needed) |
+| **VGA** | Analog video via resistor DAC VGA output |
 
-### RP2350 without PSRAM
+### Audio Output Options
 
-For boards without external PSRAM. Same CPU speeds as above.
+| Option | Description |
+|--------|-------------|
+| **I2S** | High-quality audio via external DAC (TDA1387, PCM5102, etc.) |
+| **PWM** | Direct PWM audio output (no additional hardware needed) |
 
-### RP2040 (Limited Support)
+### Platform Variants
 
-| Speed | CPU Clock | Description |
-|-------|-----------|-------------|
-| Standard | 125 MHz | Default RP2040 clock |
-| Overclocked | 252 MHz | Moderate overclock |
-
-Note: RP2040 builds have reduced functionality due to memory constraints.
+| Platform | PSRAM | Description |
+|----------|-------|-------------|
+| **RP2350 + PSRAM** | Yes | Full functionality, recommended configuration |
+| **RP2350 no-PSRAM** | No | For boards without external PSRAM |
+| **RP2040** | No | Limited support, reduced functionality due to memory constraints |
 
 ### Murmulator OS (MOS2)
 
-For use with Murmulator OS, `.m1p2` and `.m2p2` files are provided. These use a special linker script and are only available for RP2350.
+For use with Murmulator OS, `.m1p2` and `.m2p2` firmware files are provided. These use a special linker script and are only available for RP2350 with PSRAM.
 
-Choose based on your hardware configuration. Most RP2350 boards with PSRAM work reliably at 378/133 MHz.
+### Firmware File Naming
+
+Files are named: `murmapple_<board>_<video>_<audio>_<memory>_<version>.<ext>`
+
+Examples:
+- `murmapple_m1_hdmi_i2s_psram_1_00.uf2` — M1 board, HDMI video, I2S audio, with PSRAM
+- `murmapple_m2_vga_pwm_nopsram_1_00.uf2` — M2 board, VGA video, PWM audio, no PSRAM
+- `murmapple_m1_hdmi_i2s_rp2040_1_00.uf2` — M1 board, HDMI video, I2S audio, RP2040
+- `murmapple_m1_hdmi_i2s_psram_1_00.m1p2` — M1 board, MOS2 format
 
 ## Building
 
@@ -134,7 +162,7 @@ cmake -DBOARD_VARIANT=M1 -DPS2_KEYBOARD_ENABLED=OFF ..
 make -j$(nproc)
 ```
 
-### Build Options
+### Build Options (CMake)
 
 | Option | Description |
 |--------|-------------|
@@ -142,44 +170,72 @@ make -j$(nproc)
 | `-DPICO_BOARD=pico` | Build for RP2040 (limited support) |
 | `-DBOARD_VARIANT=M1` | Use M1 GPIO layout (default) |
 | `-DBOARD_VARIANT=M2` | Use M2 GPIO layout |
-| `-DCPU_SPEED=378` | CPU clock in MHz (125, 252, 378, 504) |
-| `-DPSRAM_SPEED=133` | PSRAM clock in MHz (100, 133, 166) - omit for no PSRAM |
+| `-DVIDEO_TYPE=HDMI` | Video output: HDMI (default) or VGA |
+| `-DAUDIO_TYPE=I2S` | Audio output: I2S (default) or PWM |
+| `-DCPU_SPEED=252` | CPU clock in MHz (125, 252, 378, 504) |
+| `-DPSRAM_SPEED=100` | PSRAM clock in MHz (100, 133, 166) - omit for no PSRAM |
 | `-DMOS2=ON` | Build for Murmulator OS (m1p2/m2p2 format) |
-| `-DUSB_HID_ENABLED=ON` | Enable USB keyboard (disables USB serial) |
+| `-DUSB_HID_ENABLED=OFF` | Enable USB keyboard (disables USB serial) |
 | `-DPS2_KEYBOARD_ENABLED=ON` | Enable PS/2 keyboard input |
 | `-DDEBUG_LOGS_ENABLED=ON` | Enable verbose debug logging |
 
-Or use the build script (builds M1 by default):
+### Build Script (build.sh)
+
+The easiest way to build is using the build script:
 
 ```bash
+# Default build: M1, HDMI, I2S, with PSRAM, 252 MHz
 ./build.sh
+
+# Custom configurations
+./build.sh --board M2 --video VGA --audio PWM
+./build.sh --nopsram                    # Build without PSRAM
+./build.sh --rp2040                     # Build for RP2040
+./build.sh --mos2                       # Build for Murmulator OS
+./build.sh --cpu 378                    # Overclock to 378 MHz
 ```
+
+**build.sh options:**
+
+| Option | Description |
+|--------|-------------|
+| `-b, --board <M1\|M2>` | Board variant (default: M1) |
+| `-v, --video <HDMI\|VGA>` | Video output (default: HDMI) |
+| `-a, --audio <I2S\|PWM>` | Audio output (default: I2S) |
+| `-p, --psram <MHz>` | PSRAM speed in MHz (default: 100) |
+| `--nopsram` | Build without PSRAM support |
+| `-c, --cpu <MHz>` | CPU speed: 252, 378, 504 (default: 252) |
+| `--mos2` | Build for Murmulator OS |
+| `--rp2040` | Build for RP2040 instead of RP2350 |
+| `-h, --help` | Show help |
 
 ### Release Builds
 
-To build all variants with version numbering:
+To build all 32 firmware variants with version numbering:
 
 ```bash
 ./release.sh
 ```
 
-This creates versioned firmware files in the `release/` directory:
+This creates versioned firmware files in the `release/` directory, packaged as ZIP archives:
 
-**RP2350 with PSRAM (UF2):**
-- `murmapple_m1_252_100_X_XX.uf2` through `murmapple_m1_504_166_X_XX.uf2`
-- `murmapple_m2_252_100_X_XX.uf2` through `murmapple_m2_504_166_X_XX.uf2`
+| Archive | Contents |
+|---------|----------|
+| `murmapple_m1_psram_X_XX.zip` | M1 board, RP2350 with PSRAM (4 variants: HDMI/VGA × I2S/PWM) |
+| `murmapple_m2_psram_X_XX.zip` | M2 board, RP2350 with PSRAM (4 variants) |
+| `murmapple_m1_nopsram_X_XX.zip` | M1 board, RP2350 without PSRAM (4 variants) |
+| `murmapple_m2_nopsram_X_XX.zip` | M2 board, RP2350 without PSRAM (4 variants) |
+| `murmapple_m1_rp2040_X_XX.zip` | M1 board, RP2040 (4 variants) |
+| `murmapple_m2_rp2040_X_XX.zip` | M2 board, RP2040 (4 variants) |
+| `murmapple_mos2_X_XX.zip` | Murmulator OS builds (.m1p2/.m2p2, 8 variants) |
 
-**RP2350 without PSRAM (UF2):**
-- `murmapple_m1_252_nopsram_X_XX.uf2` through `murmapple_m1_504_nopsram_X_XX.uf2`
-- `murmapple_m2_252_nopsram_X_XX.uf2` through `murmapple_m2_504_nopsram_X_XX.uf2`
+Each archive contains firmware for all video/audio combinations:
+- `*_hdmi_i2s_*.uf2` — HDMI video, I2S audio
+- `*_hdmi_pwm_*.uf2` — HDMI video, PWM audio
+- `*_vga_i2s_*.uf2` — VGA video, I2S audio
+- `*_vga_pwm_*.uf2` — VGA video, PWM audio
 
-**RP2350 Murmulator OS (MOS2):**
-- `murmapple_m1_252_100_X_XX.m1p2` through `murmapple_m1_504_166_X_XX.m1p2`
-- `murmapple_m2_252_100_X_XX.m2p2` through `murmapple_m2_504_166_X_XX.m2p2`
-
-**RP2040 (UF2):**
-- `murmapple_m1_125_rp2040_X_XX.uf2`, `murmapple_m1_252_rp2040_X_XX.uf2`
-- `murmapple_m2_125_rp2040_X_XX.uf2`, `murmapple_m2_252_rp2040_X_XX.uf2`
+All release builds use 252 MHz CPU clock (no overclocking) for maximum stability.
 
 ### Flashing
 
@@ -205,6 +261,9 @@ picotool load -f build/murmapple.uf2
 - **DSK** — Standard 140KB sector-based disk images
 - **NIB** — Nibble-based disk images (140KB)
 - **WOZ** — Flux-accurate disk images (WOZ v1 and v2)
+- **BDSK** — MurmApple write-back format (created automatically when saving changes)
+
+> **Note:** When you modify a disk (e.g., save a game), changes are written to a `.bdsk` file with the same name, preserving the original disk image.
 
 ## Controls
 
@@ -259,8 +318,9 @@ This project is based on the following open-source projects:
 
 **DnCraptor** ([GitHub](https://github.com/DnCraptor))
 - Murmulator OS (MOS2) integration
-- RP2350 platform support
+- RP2040 platform support
+- VGA video output driver
 - No-PSRAM mode for boards without external PSRAM
-- RP2040 limited support
+- Disk write-back support (.bdsk format)
 - Disk UI enhancements
 - Various bug fixes and improvements
