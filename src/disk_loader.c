@@ -491,6 +491,17 @@ static int disk_load_floppy_bdsk_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t 
     return 0;
 }
 
+bool disk_bdsk_exists2(const char *filename) {
+    FILINFO fno;
+    const char *dot = strrchr(filename, '.');
+    bool is_bdsk = (dot && strcasecmp(dot, ".bdsk") == 0);
+    if (is_bdsk) {
+        return false;
+    }
+    snprintf(path, sizeof(path), "%s/%s.bdsk", selected_dir, filename);
+    return f_stat(path, &fno) == FR_OK;
+}
+
 static bool disk_bdsk_exists(const char *filename) {
     FILINFO fno;
     const char *dot = strrchr(filename, '.');
@@ -714,7 +725,7 @@ void disk_write_track(uint8_t drive, uint8_t track_id, mii_t* mii);
 
 // Mount a loaded disk image to the emulator
 // preserve_state: if true, keeps motor/head position for disk swap during game
-int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, bool read_only) {
+int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, bool read_only, bool bdsk_recreate) {
     if (drive < 0 || drive > 1) {
         printf("Invalid drive: %d\n", drive);
         return -1;
@@ -779,7 +790,7 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
 
     // Load the disk image into the floppy structure
     res = -1;
-    if (!disk_bdsk_exists(file->pathname)) {
+    if (bdsk_recreate || !disk_bdsk_exists(file->pathname)) {
         // Open the image on SD
         if (!disk_open_original_image_file(disk->filename, &fp, path, sizeof(path))) {
             printf("Failed to open disk image %s\n", disk->filename);

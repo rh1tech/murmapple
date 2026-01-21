@@ -101,7 +101,7 @@ struct mii_t;
 // slot: slot number where disk2 card is installed (usually 6)
 // preserve_state: if true, keeps motor/head position (for disk swap during game)
 // Returns 0 on success, -1 on error
-int disk_mount_to_emulator(int drive, struct mii_t *mii, int slot, int preserve_state, bool read_only);
+int disk_mount_to_emulator(int drive, struct mii_t *mii, int slot, int preserve_state, bool read_only, bool bdsk_recreate);
 
 // Eject a disk from the emulator
 // drive: 0 or 1 (Drive 1 or Drive 2)

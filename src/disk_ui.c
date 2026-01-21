@@ -19,6 +19,7 @@
 
 // External function to clear held key state (from main.c)
 extern void clear_held_key(void);
+bool disk_bdsk_exists2(const char *filename);
 
 // Emulator reference (for mounting disks)
 static mii_t *g_mii = NULL;
@@ -380,6 +381,8 @@ void disk_ui_show_loading(void) {
 }
 
 static bool read_only = true;
+static bool bdsk_exists = false;
+static bool bdsk_recreate = false;
 
 // Handle loading complete - mount disk and perform action
 static void handle_disk_loaded(void) {
@@ -391,7 +394,8 @@ static void handle_disk_loaded(void) {
                 g_mii,
                 g_disk2_slot,
                 preserve_state,
-                read_only
+                read_only,
+                bdsk_recreate
             )
         ) {
             printf("Disk UI: disk mounted successfully\n");
@@ -521,6 +525,10 @@ bool disk_ui_handle_key(uint8_t key) {
                         selected_action = 0;
                         ui_dirty = true;
                         MII_DEBUG_PRINTF("Disk UI: selecting action for file %d\n", selected_file);
+                        int base = has_parent_dir ? 1 : 0;
+                        disk_entry_t *entry = &g_disk_list[selected_file - base];
+                        bdsk_exists = disk_bdsk_exists2( entry->filename );
+                        if (!bdsk_exists) bdsk_recreate = false;
                     }
                 }
                 handled = true;
@@ -645,23 +653,19 @@ bool disk_ui_handle_key(uint8_t key) {
 
         case ' ':  // Space = toggle Read-Only
             if (ui_state == DISK_UI_SELECT_ACTION) {
-                int base = has_parent_dir ? 1 : 0;
-                int idx  = selected_file - base;
-                if (idx >= 0 && idx < g_disk_count) {
-                    disk_entry_t *e = &g_disk_list[idx];
-                    loaded_disk_t *d = &g_loaded_disks[selected_drive];
-                    // Toggle write-back flag
-                    read_only = !read_only;
-                    MII_DEBUG_PRINTF(
-                        "Disk UI: drive %d Read-Only -> %s\n",
-                        selected_drive + 1,
-                        read_only ? "ON" : "OFF"
-                    );
-                    ui_dirty = true;
-                    handled = true;
-                }
+                read_only = !read_only;
+                ui_dirty = true;
+                handled = true;
             }
-            break;            
+            break;
+
+        case 'D':  // D = toggle bdsk_recreate
+            if (ui_state == DISK_UI_SELECT_ACTION) {
+                bdsk_recreate = !bdsk_recreate;
+                ui_dirty = true;
+                handled = true;
+            }
+            break;
 
         case '1':
             if (ui_state == DISK_UI_SELECT_DRIVE) {
@@ -850,10 +854,16 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         y += LINE_HEIGHT + 8;
 
         // Read-only checkbox (drive state)
-        char ro_label[32];
-        snprintf(ro_label, sizeof(ro_label), "[%c] Read-only (SPACE to change)", read_only ? 'x' : ' ');
-        draw_string(framebuffer, width, content_x, y, ro_label, COLOR_TEXT);
+        char label[32];
+        snprintf(label, sizeof(label), "[%c] Read-only [SPACE]", read_only ? 'x' : ' ');
+        draw_string(framebuffer, width, content_x, y, label, COLOR_TEXT);
         y += LINE_HEIGHT + 4;
+
+        if (bdsk_exists) {
+            snprintf(label, sizeof(label), "[%c] Recreate .bdsk [D]", bdsk_recreate ? 'x' : ' ');
+            draw_string(framebuffer, width, content_x, y, label, COLOR_TEXT);
+            y += LINE_HEIGHT + 4;
+        }
         
         // Action options
         draw_string(framebuffer, width, content_x, y, "Select action:", COLOR_TEXT);
