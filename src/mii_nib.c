@@ -47,7 +47,6 @@ mii_floppy_nib_render_track(
 	int state = 0;		// look for address field
 	int tid = 0, sid;
 	uint16_t hmap = 0, dmap = 0;
-	dst->has_map = 0;	// we are redoing it all
 	do {
 		window = (window << 8) | src_track[srci++];
 		switch (state) {
@@ -64,9 +63,6 @@ mii_floppy_nib_render_track(
 				sid = DE44(h[8], h[9]);
 			//	printf("Track %2d sector %2d pos %5d\n", tid, sid, pos);
 				hmap |= 1 << sid;
-				dst->map.sector[sid].hsync = dst->bit_count - pos;
-				// points to the 0xd5
-				dst->map.sector[sid].header = dst->bit_count + 8;
 				memcpy(dst_track + (dst->bit_count >> 3), h, 15);
 				dst->bit_count += 15 * 8;
 				srci += 11;
@@ -81,14 +77,7 @@ mii_floppy_nib_render_track(
 			//	printf("\tdata at %d\n", dst->bit_count);
 				dmap |= 1 << sid;
 				uint8_t *h = src_track + srci - 4;
-				dst->map.sector[sid].dsync = dst->bit_count - pos;
-				// keep the position in track to be able to save sectors back
-				// this points to the first byte of data
-				dst->map.sector[sid].nib_position = srci;
-				// points to the 0xd5
-				dst->map.sector[sid].data = dst->bit_count + 8;
 				memcpy(dst_track + (dst->bit_count >> 3), h, 4 + 342 + 4);
-				dst->map.sector[sid].crc = mii_floppy_crc(-1, src_track + srci, 342);
 				dst->bit_count += (4 + 342 + 4) * 8;
 				srci += 4 + 342;
 				seccount++;
@@ -101,8 +90,6 @@ mii_floppy_nib_render_track(
 	if (hmap != 0xffff || dmap != 0xffff)
 		    MII_DEBUG_PRINTF("%s: track %2d incomplete? (header 0x%04x data 0x%04x)\n",
 			    __func__, tid, ~hmap, ~dmap);
-	else
-		dst->has_map = 1;
 }
 
 /*

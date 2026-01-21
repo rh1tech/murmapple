@@ -40,10 +40,9 @@ typedef struct mii_floppy_track_map_t {
 
 typedef struct mii_floppy_track_t {
 	uint8_t					dirty : 1,		// track has been written to
-							has_map : 1,	// track has a valid map
 							virgin : 1;		// track is not loaded/formatted
 	uint32_t				bit_count;
-	mii_floppy_track_map_t 	map;			// position of all the sectors
+///	mii_floppy_track_map_t 	map;			// position of all the sectors
 } mii_floppy_track_t;
 
 

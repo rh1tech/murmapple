@@ -239,40 +239,5 @@ mii_floppy_dsk_load(
 		mii_dd_file_t *file )
 {
 // unsupported for now
-#if 0
-	const char *filename = basename(file->pathname);
-
-    const char *ext = rindex(filename, '.');
-    ext = ext ? ext+1 : "";
-	const uint8_t * secmap = DO;
-	if (!strcasecmp(ext, "PO"))  {
-		MII_DEBUG_PRINTF("%s opening %s as PO.\n", __func__, filename);
-   		secmap = PO;
-    } else {
-		MII_DEBUG_PRINTF("%s opening %s as DO.\n", __func__, filename);
-    }
-	for (int i = 0; i < 35; ++i) {
-		mii_floppy_track_t *dst = &f->tracks[i];
-		uint8_t *track_data = f->track_data[i];
-		dst->bit_count = 0;
-		dst->virgin = 0;
-		dst->has_map = 1;	// being filled by nibblize_sector
-		for (int phys_sector = 0; phys_sector < 16; phys_sector++) {
-			const uint8_t dos_sector = secmap[phys_sector];
-			uint32_t off = ((16 * i + dos_sector) * DSK_SECTOR_SIZE);
-			uint8_t *src = file->map + off;
-			mii_floppy_dsk_render_sector(VOLUME_NUMBER, i, phys_sector,
-						src, dst, track_data);
-			dst->map.sector[phys_sector].dsk_position = off;
-		}
-		if (i == 0)
-		    MII_DEBUG_PRINTF("%s: track %2d has %u bits %u bytes\n",
-			    __func__, i,
-			    (unsigned)dst->bit_count,
-			    (unsigned)(dst->bit_count >> 3));
-	}
-	// DSK is read only
-//	f->write_protected |= MII_FLOPPY_WP_RO_FORMAT;
-#endif
 	return 0;
 }

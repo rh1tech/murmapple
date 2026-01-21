@@ -196,7 +196,6 @@ static int disk_load_floppy_dsk_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *
         uint8_t *track_data = floppy->curr_track_data;
         dst->bit_count = 0;
         dst->virgin = 0;
-        dst->has_map = 0;
 
         for (int phys_sector = 0; phys_sector < DSK_SECTORS; phys_sector++) {
             uint8_t sector_buf[DSK_SECTOR_SIZE];
@@ -461,7 +460,6 @@ disk_load_floppy_bdsk_track_from_fatfs(
     dst->bit_count = desc.bit_count;
     dst->virgin    = 0;
     dst->dirty     = 0;
-    dst->has_map   = 0;   // IMPORTANT: bdsk has no sector map
 
     return 0;
 }
@@ -758,13 +756,6 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
     printf("Mounting %s to drive %d (format=%d, size=%lu, preserve=%d)\n",
            disk->filename, drive + 1, file->format, (unsigned long)file->size, preserve_state);
 
-    // Open the image on SD
-    if (!disk_open_original_image_file(disk->filename, &fp, path, sizeof(path))) {
-        printf("Failed to open disk image %s\n", disk->filename);
-        return -1;
-    }
-    printf("Reading disk from SD: %s\n", path);
-    
     // Save drive state if we need to preserve it (for INSERT mode)
     uint8_t saved_motor = floppy->motor;
     uint8_t saved_stepper = floppy->stepper;
@@ -788,25 +779,32 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
 
     // Load the disk image into the floppy structure
     res = -1;
-    if (!disk_bdsk_exists(file->pathname)) switch (file->format) {
-        case MII_DD_FILE_DSK:
-        case MII_DD_FILE_DO:
-        case MII_DD_FILE_PO:
-            res = disk_load_floppy_dsk_from_fatfs(floppy, file, &fp);
-            break;
-        case MII_DD_FILE_NIB:
-            res = disk_load_floppy_nib_from_fatfs(floppy, file, &fp);
-            break;
-        case MII_DD_FILE_WOZ:
-            res = disk_load_floppy_woz_from_fatfs(floppy, file, &fp);
-            break;
-        case MII_DD_FILE_BDSK:
-            res = disk_load_floppy_bdsk_from_fatfs(floppy, file, &fp);
-            break;
-        default:
-            printf("%s: unsupported format %d\n", __func__, file->format);
-            res = -1;
-            break;
+    if (!disk_bdsk_exists(file->pathname)) {
+        // Open the image on SD
+        if (!disk_open_original_image_file(disk->filename, &fp, path, sizeof(path))) {
+            printf("Failed to open disk image %s\n", disk->filename);
+            return -1;
+        }
+        switch (file->format) {
+            case MII_DD_FILE_DSK:
+            case MII_DD_FILE_DO:
+            case MII_DD_FILE_PO:
+                res = disk_load_floppy_dsk_from_fatfs(floppy, file, &fp);
+                break;
+            case MII_DD_FILE_NIB:
+                res = disk_load_floppy_nib_from_fatfs(floppy, file, &fp);
+                break;
+            case MII_DD_FILE_WOZ:
+                res = disk_load_floppy_woz_from_fatfs(floppy, file, &fp);
+                break;
+            case MII_DD_FILE_BDSK:
+                res = disk_load_floppy_bdsk_from_fatfs(floppy, file, &fp);
+                break;
+            default:
+                printf("%s: unsupported format %d\n", __func__, file->format);
+                res = -1;
+                break;
+        }
     } else {
         // bdsk есть → НЕ КОНВЕРТИРУЕМ
         if (!disk_open_bdsk_image_file(&fp, file->pathname, path, sizeof(path)))
