@@ -33,7 +33,8 @@ enum {
 	MII_DD_FILE_DSK,
 	MII_DD_FILE_DO,
 	MII_DD_FILE_NIB,
-	MII_DD_FILE_WOZ
+	MII_DD_FILE_WOZ,
+	MII_DD_FILE_BDSK
 };
 
 // a disk image file (or chunck of ram, if ramdisk is used)

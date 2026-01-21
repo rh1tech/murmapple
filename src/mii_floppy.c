@@ -583,25 +583,5 @@ mii_floppy_load(
 	else
 		f->write_protected &= ~MII_FLOPPY_WP_RO_FILE;
 	f->seed_dirty = f->seed_saved = rand();
-#if 0
-	// dump the floppy track maps to check on offsets etc
-	for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++) {
-		mii_floppy_track_map_t *map = &f->tracks[i].map;
-		if (!f->tracks[i].has_map)
-			continue;
-		printf("Track %2d\n", i);
-		// also show the first 24 bits of data, to check for sync
-		for (int j = 0; j < 16; j++) {
-			printf("\tSector %2d header :%4d:%5d data %3d:%5d crc %04x sync %06x %06x\n",
-					j, map->sector[j].hsync, map->sector[j].header,
-					map->sector[j].dsync, map->sector[j].data, map->sector[j].crc,
-					mii_floppy_read_track_bits(&f->tracks[i], f->track_data[i],
-						map->sector[j].header, 24),
-					mii_floppy_read_track_bits(&f->tracks[i], f->track_data[i],
-						map->sector[j].data, 24));
-//			printf("\n");
-		}
-	}
-#endif
 	return res;
 }

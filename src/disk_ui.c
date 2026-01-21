@@ -649,19 +649,16 @@ bool disk_ui_handle_key(uint8_t key) {
                 int idx  = selected_file - base;
                 if (idx >= 0 && idx < g_disk_count) {
                     disk_entry_t *e = &g_disk_list[idx];
-                    // Only .dsk supports RW in this iteration
-                    if (e->type == DISK_TYPE_DSK) {
-                        loaded_disk_t *d = &g_loaded_disks[selected_drive];
-                        // Toggle write-back flag
-                        read_only = !read_only;
-                        MII_DEBUG_PRINTF(
-                            "Disk UI: drive %d Read-Only -> %s\n",
-                            selected_drive + 1,
-                            read_only ? "ON" : "OFF"
-                        );
-                        ui_dirty = true;
-                        handled = true;
-                    }
+                    loaded_disk_t *d = &g_loaded_disks[selected_drive];
+                    // Toggle write-back flag
+                    read_only = !read_only;
+                    MII_DEBUG_PRINTF(
+                        "Disk UI: drive %d Read-Only -> %s\n",
+                        selected_drive + 1,
+                        read_only ? "ON" : "OFF"
+                    );
+                    ui_dirty = true;
+                    handled = true;
                 }
             }
             break;            
@@ -781,7 +778,7 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         
         if (g_disk_count == 0) {
             draw_string(framebuffer, width, content_x, y, "No disk images found", COLOR_TEXT);
-            draw_string(framebuffer, width, content_x, y + LINE_HEIGHT, "Place .dsk/.woz/.nib files there", COLOR_TEXT);
+            draw_string(framebuffer, width, content_x, y + LINE_HEIGHT, "Place .bdsk/.dsk/.woz/.nib files there", COLOR_TEXT);
         } else {
             // Calculate visible range
             int visible = (total_items < MAX_VISIBLE) ? total_items : MAX_VISIBLE;
