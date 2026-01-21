@@ -6,6 +6,7 @@
  * 
  * Developed by Mikhail Matveev, rh1.tech
  */
+#ifndef PICO_RP2040 // for RP2350 only
 
 #include "mii_startscreen.h"
 #include "debug_log.h"
@@ -15,8 +16,8 @@
 #include <string.h>
 
 // Get actual screen dimensions from HDMI driver
-#define SCREEN_WIDTH  ((int)graphics_get_width())
-#define SCREEN_HEIGHT ((int)graphics_get_height())
+#define SCREEN_WIDTH  320
+#define SCREEN_HEIGHT 240
 
 // UI dimensions
 #define CHAR_WIDTH      6
@@ -136,6 +137,17 @@ static const uint8_t font_6x8[][8] = {
 // Drawing primitives (same style as disk_ui)
 //=============================================================================
 
+static inline void put_pixel_4bpp(uint8_t *fb, uint32_t pix_idx, uint8_t color) {
+    uint8_t *p = &fb[pix_idx >> 1];
+    if (pix_idx & 1) {
+        // high nibble
+        *p = (*p & 0x0F) | (color << 4);
+    } else {
+        // low nibble
+        *p = (*p & 0xF0) | color;
+    }
+}
+
 // Draw a filled rectangle
 static void draw_rect(uint8_t *fb, int fb_width, int x, int y, int w, int h, uint8_t color) {
     const int screen_h = SCREEN_HEIGHT;
@@ -143,7 +155,7 @@ static void draw_rect(uint8_t *fb, int fb_width, int x, int y, int w, int h, uin
         if (y + dy < 0 || y + dy >= screen_h) continue;
         for (int dx = 0; dx < w; dx++) {
             if (x + dx < 0 || x + dx >= fb_width) continue;
-            fb[(y + dy) * fb_width + (x + dx)] = color;
+            put_pixel_4bpp(fb, (y + dy) * fb_width + (x + dx), color);
         }
     }
 }
@@ -162,7 +174,7 @@ static void draw_char(uint8_t *fb, int fb_width, int x, int y, char c, uint8_t c
         for (int col = 0; col < 6; col++) {
             if (x + col < 0 || x + col >= fb_width) continue;
             if (bits & (0x80 >> col)) {
-                fb[(y + row) * fb_width + (x + col)] = color;
+                put_pixel_4bpp(fb, (y + row) * fb_width + (x + col), color);
             }
         }
     }
@@ -218,7 +230,6 @@ static void draw_centered_string(uint8_t *fb, int fb_width, int y, const char *s
 //=============================================================================
 // Start screen implementation
 //=============================================================================
-
 int mii_startscreen_show(mii_startscreen_info_t *info) {
     if (!info) {
         MII_DEBUG_PRINTF("Start screen: info is NULL\n");
@@ -234,7 +245,7 @@ int mii_startscreen_show(mii_startscreen_info_t *info) {
     
     const int screen_w = SCREEN_WIDTH;
     const int screen_h = SCREEN_HEIGHT;
-    const int buffer_size = screen_w * screen_h;
+    const int buffer_size = screen_w * screen_h / 2;
     MII_DEBUG_PRINTF("Start screen: screen=%dx%d\n", screen_w, screen_h);
     
     // Clear screen to black
@@ -299,3 +310,5 @@ int mii_startscreen_show(mii_startscreen_info_t *info) {
     
     return 0;
 }
+
+#endif

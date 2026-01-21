@@ -8,6 +8,8 @@
 #ifndef MII_STARTSCREEN_H
 #define MII_STARTSCREEN_H
 
+#ifndef PICO_RP2040 // for RP2350 only
+
 #include <stdint.h>
 
 typedef struct {
@@ -26,5 +28,7 @@ typedef struct {
  * Returns 0 when ready to proceed (user presses a key or auto-timeout)
  */
 int mii_startscreen_show(mii_startscreen_info_t *info);
+
+#endif
 
 #endif // MII_STARTSCREEN_H

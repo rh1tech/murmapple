@@ -35,17 +35,116 @@ typedef struct mii_bank_access_t {
 	void *param;
 } mii_bank_access_t;
 
+typedef struct vram_page_t {
+    uint8_t pinned : 1, // do not use it in swap, the page should be in SRAM
+			in_ram : 1; // already in RAM now
+	uint8_t lba; // page number in real RAM (mii_bank_t.raw) file 0..255
+} vram_page_t;
+
+typedef struct sram_page_t {
+    uint8_t dirty  : 1; // page was changed, so it should be saved to swap (not just unload)
+} sram_page_t;
+
+#define RAM_IN_PAGE_ADDR_MASK (0x000000FF) // one byte adresses 256 pages
+#define RAM_PAGE_SIZE (0x00000100L)
+
+#if PICO_RP2040
+	#ifdef VIDEO_HDMI
+		#if FEATURE_AUDIO_I2S
+			#define RAM_PAGES_PER_POOL (232-80)
+		#else
+			#define RAM_PAGES_PER_POOL (232)
+		#endif
+	#else
+		#if FEATURE_AUDIO_I2S
+			#define RAM_PAGES_PER_POOL (242-66)
+		#else
+			#define RAM_PAGES_PER_POOL (242)
+		#endif
+	#endif
+#else
+	#define RAM_PAGES_PER_POOL (256)
+#endif
+
+#define MAX_PAGES_PER_POOL (256)
+#define SHIFT_AS_DIV (8)
+
+#include <fatfs/ff.h>
+
+typedef struct vram_t {
+	uint8_t*	raw;			// pointer to direct (raw) RAM/ROM or 
+	const char* filename;  		// use this filename for case swap this VRAM instance
+	vram_page_t	v_desc[MAX_PAGES_PER_POOL];	// index - virtual page number 0..0xFF (Apple II >> SHIFT_AS_DIV)
+	sram_page_t s_desc[RAM_PAGES_PER_POOL]; // index - (addr32 >> SHIFT_AS_DIV) - real SRAM stored (on RP2040/RP2350) page descriptors
+	uint8_t		oldest_vpage;	// rolling page (for invalidation), it is virtual page number (desc[#], Aplle II address related)
+	FIL f;
+} vram_t;
+
 typedef struct mii_bank_t {
-	uint64_t	base : 16, 		// base address
-				size : 9,		// in pages
-				no_alloc: 1,	// don't allocate memory
-				alloc : 1,		// been malloced()
-				ro : 1;			// read only
-	char *		name;
-	mii_bank_access_t * access;
-	uint8_t		*mem;
-	uint32_t 	mem_offset;
+#if WITH_BANK_ACCESS
+	mii_bank_access_t* access;
+#endif
+	uint16_t	base;		// base Aplle II address
+	uint8_t		size;		// total size in pages (including VRAM case), 0..255
+	char*		name;
+	uint32_t 	logical_mem_offset; // for case .raw[0] not points to .base[0], used .raw[0] <- .base[logical_mem_offset]
+	union {
+		uint8_t*	raw;			// pointer to direct (raw) RAM/ROM or 
+		vram_t*     vram_desc;      // VRAM descriptor
+	} ua; // union access to raw SRAM or to related VirtualRAM .vram should be 1 for last case
+	uint8_t		no_alloc: 1,	// not allocated memory (static)
+				alloc   : 1,	// been callocated()
+				ro      : 1,	// read only
+				vram    : 1;	// *raw has no space for all pages
 } mii_bank_t;
+
+void init_ram_pages_for(vram_t* v, uint8_t* raw, uint32_t raw_size);
+uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16);
+
+inline static
+void pin_ram_pages_for(
+        vram_t* v,
+        const uint32_t start_addr,
+        const uint16_t len_bytes)
+{
+    if (!v)
+        return;
+
+    const uint32_t first = start_addr >> SHIFT_AS_DIV;
+    const uint32_t last  = (len_bytes == 0)
+        ? first - 1
+        : (start_addr + len_bytes - 1) >> SHIFT_AS_DIV;
+
+	for (uint32_t p = 2; p < MAX_PAGES_PER_POOL; ++p) {
+        v->v_desc[p].pinned = 0;
+    }
+	// pages 0 & 1 always pinned
+    for (uint32_t vpage = 2; vpage < MAX_PAGES_PER_POOL; ++vpage) {
+        if (vpage >= first && vpage <= last) {
+            if (!v->v_desc[vpage].pinned) {
+                get_ram_page_for(v, vpage << SHIFT_AS_DIV);
+                v->v_desc[vpage].pinned = 1;
+            }
+        } else {
+            v->v_desc[vpage].pinned = 0;
+        }
+    }	
+}
+
+inline static
+uint8_t ram_page_read(vram_t* v, const uint32_t addr32) {
+    const register uint8_t ram_page = get_ram_page_for(v, addr32);
+    const register uint32_t addr_in_page = addr32 & RAM_IN_PAGE_ADDR_MASK;
+    return v->raw[(ram_page * RAM_PAGE_SIZE) + addr_in_page];
+}
+
+inline static
+void ram_page_write(vram_t* v, const uint32_t addr32, const uint8_t val) {
+    const register uint8_t ram_page = get_ram_page_for(v, addr32);
+    const register uint32_t addr_in_page = addr32 & RAM_IN_PAGE_ADDR_MASK;
+    v->raw[(ram_page * RAM_PAGE_SIZE) + addr_in_page] = val;
+	v->s_desc[ram_page].dirty = 1;
+}
 
 void
 mii_bank_init(
@@ -96,8 +195,8 @@ mii_bank_peek(
 		mii_bank_t *bank,
 		uint16_t addr)
 {
-	uint32_t phy = bank->mem_offset + addr - bank->base;
-	return bank->mem[phy];
+	uint32_t phy = bank->logical_mem_offset + addr - bank->base;
+	return bank->vram ? ram_page_read(bank->ua.vram_desc, phy) : bank->ua.raw[phy];
 }
 
 static inline __attribute__((always_inline)) void
@@ -106,8 +205,11 @@ mii_bank_poke(
 		uint16_t addr,
 		const uint8_t data)
 {
-	uint32_t phy = bank->mem_offset + addr - bank->base;
-	bank->mem[phy] = data;
+	uint32_t phy = bank->logical_mem_offset + addr - bank->base;
+	if (bank->vram)
+		ram_page_write(bank->ua.vram_desc, phy, data);
+	else
+		bank->ua.raw[phy] = data;
 }
 #else
 static inline void

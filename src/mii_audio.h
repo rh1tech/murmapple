@@ -12,9 +12,9 @@
 #include "fifo_declare.h"
 #include "bsd_queue.h"
 
-#define MII_AUDIO_FREQ			(44100)
+#define MII_AUDIO_FREQ			(22050)
 // circular buffer
-#define MII_AUDIO_FRAME_SIZE  	4096
+#define MII_AUDIO_FRAME_SIZE  	2048
 
 typedef float mii_audio_sample_t;
 

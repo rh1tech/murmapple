@@ -7,6 +7,7 @@
 #ifndef BOARD_CONFIG_H
 #define BOARD_CONFIG_H
 
+#include "pico.h"
 #include "hardware/structs/sysinfo.h"
 #include "hardware/vreg.h"
 
@@ -63,12 +64,17 @@
 
 // Runtime function to get PSRAM pin based on chip package
 static inline uint get_psram_pin(void) {
+#if PICO_RP2040
+    return 0;
+#endif
+#if PICO_RP2350
     uint32_t package_sel = *((io_ro_32*)(SYSINFO_BASE + SYSINFO_PACKAGE_SEL_OFFSET));
     if (package_sel & 1) {
         return PSRAM_PIN_RP2350A;
     } else {
         return PSRAM_PIN_RP2350B;
     }
+#endif
 }
 
 //=============================================================================
@@ -107,6 +113,17 @@ static inline uint get_psram_pin(void) {
 #define I2S_DATA_PIN       26
 #define I2S_CLOCK_PIN_BASE 27
 
+#define BEEPER_PIN 28
+
+#define PSRAM
+#define PSRAM_SPINLOCK 1
+#define PSRAM_ASYNC 1
+
+#define PSRAM_PIN_CS 18
+#define PSRAM_PIN_SCK 19
+#define PSRAM_PIN_MOSI 20
+#define PSRAM_PIN_MISO 21
+
 #endif // BOARD_M1
 
 //=============================================================================
@@ -144,6 +161,17 @@ static inline uint get_psram_pin(void) {
 // I2S Audio Pins
 #define I2S_DATA_PIN       9
 #define I2S_CLOCK_PIN_BASE 10
+
+#define BEEPER_PIN 9
+
+//#define PSRAM
+#define PSRAM_SPINLOCK 1
+#define PSRAM_ASYNC 1
+
+#define PSRAM_PIN_CS 8
+#define PSRAM_PIN_SCK 6
+#define PSRAM_PIN_MOSI 7
+#define PSRAM_PIN_MISO 4
 
 #endif // BOARD_M2
 

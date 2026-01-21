@@ -88,7 +88,7 @@ _run_timers_inline(mii_cpu_t *cpu) {
 			uint8_t _page = _a >> 8; \
 			uint8_t _m = _mii->mem[_page].read; \
 			mii_bank_t *_b = &_mii->bank[_m]; \
-			s.data = _b->mem[_b->mem_offset + _a - _b->base]; \
+			s.data = mii_bank_peek(_b,_a); \
 		} else { \
 			_run_timers_inline(cpu); \
 			s = cpu->access(cpu, s); \
@@ -107,7 +107,7 @@ _run_timers_inline(mii_cpu_t *cpu) {
 			uint8_t _page = _a >> 8; \
 			uint8_t _m = _mii->mem[_page].write; \
 			mii_bank_t *_b = &_mii->bank[_m]; \
-			_b->mem[_b->mem_offset + _a - _b->base] = s.data; \
+			mii_bank_poke(_b, _a, s.data); \
 		} else { \
 			_run_timers_inline(cpu); \
 			s = cpu->access(cpu, s); \

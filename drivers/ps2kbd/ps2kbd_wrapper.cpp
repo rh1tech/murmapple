@@ -21,6 +21,8 @@ static std::queue<KeyEvent> event_queue;
 //   0xF1 = F1 key (reserved)
 //   0xFB = F11 key (disk selector)
 //   0xFC = F12 key (reserved)
+//   0xFD - PgUp
+//   0xFE - PgDown
 static unsigned char hid_to_apple2(uint8_t code, uint8_t modifiers) {
     bool shift = (modifiers & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT)) != 0;
     bool ctrl = (modifiers & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL)) != 0;
@@ -74,7 +76,9 @@ static unsigned char hid_to_apple2(uint8_t code, uint8_t modifiers) {
         case 0x50: return 0x08;  // Left arrow (Backspace)
         case 0x51: return 0x0A;  // Down arrow (CTRL+J, line feed)
         case 0x52: return 0x0B;  // Up arrow (CTRL+K)
-        
+        case 0x4B: return 0xFD;  // Page Up
+        case 0x4E: return 0xFE;  // Page Down
+
         default: return 0;
     }
 }

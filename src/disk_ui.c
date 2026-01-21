@@ -5,6 +5,9 @@
  * Features inverted title bar, compact 6x8 font, proper selection highlighting
  */
 
+#include <pico.h>
+#include <pico/stdlib.h>
+#include <hardware/sync.h>
 #include <stdio.h>
 #include <string.h>
 #include "disk_ui.h"
@@ -22,6 +25,7 @@ static mii_t *g_mii = NULL;
 int g_disk2_slot = 6;  // Default slot for Disk II
 
 // UI state - volatile to prevent race conditions between cores
+static bool fb_needs_clear = true;
 static volatile disk_ui_state_t ui_state = DISK_UI_HIDDEN;
 static volatile int selected_drive = 0;      // 0 or 1
 static volatile int selected_file = 0;       // Currently highlighted file
@@ -43,7 +47,7 @@ static uint8_t *g_last_framebuffer = NULL;
 #define CHAR_HEIGHT     8       // Character height in pixels
 #define HEADER_HEIGHT   12      // Title bar height
 #define LINE_HEIGHT     10      // Line spacing
-#define MAX_VISIBLE     16      // Max visible items
+#define MAX_VISIBLE     17      // Max visible items
 #define MAX_DISPLAY_LEN 40      // Max characters for filename display
 
 // Colors (palette indices)
@@ -153,13 +157,24 @@ static const uint8_t font_6x8[][8] = {
     {0x00,0x00,0x40,0xA8,0x10,0x00,0x00,0x00}, // 126 ~
 };
 
+static inline void put_pixel_4bpp(uint8_t *fb, uint32_t pix_idx, uint8_t color) {
+    uint8_t *p = &fb[pix_idx >> 1];
+    if (pix_idx & 1) {
+        // high nibble
+        *p = (*p & 0x0F) | (color << 4);
+    } else {
+        // low nibble
+        *p = (*p & 0xF0) | color;
+    }
+}
+
 // Draw a filled rectangle
 static void draw_rect(uint8_t *fb, int width, int x, int y, int w, int h, uint8_t color) {
     for (int dy = 0; dy < h; dy++) {
         if (y + dy < 0 || y + dy >= 240) continue;
         for (int dx = 0; dx < w; dx++) {
             if (x + dx < 0 || x + dx >= width) continue;
-            fb[(y + dy) * width + (x + dx)] = color;
+            put_pixel_4bpp(fb, (y + dy) * width + (x + dx), color);
         }
     }
 }
@@ -177,7 +192,7 @@ static void draw_char(uint8_t *fb, int fb_width, int x, int y, char c, uint8_t c
         for (int col = 0; col < 6; col++) {
             if (x + col < 0 || x + col >= fb_width) continue;
             if (bits & (0x80 >> col)) {
-                fb[(y + row) * fb_width + (x + col)] = color;
+                put_pixel_4bpp(fb, (y + row) * fb_width + (x + col), color);
             }
         }
     }
@@ -284,8 +299,32 @@ void disk_ui_init_with_emulator(mii_t *mii, int disk2_slot) {
     MII_DEBUG_PRINTF("Disk UI initialized with mii=%p, slot=%d\n", mii, disk2_slot);
 }
 
+extern uint8_t vram[2 * RAM_PAGES_PER_POOL * RAM_PAGE_SIZE];
+extern FIL fp;
+extern char selected_dir[128];
+
 void disk_ui_show(void) {
     if (ui_state == DISK_UI_HIDDEN) {
+        { // TODO: error handling
+            gpio_put(PICO_DEFAULT_LED_PIN, true);
+            f_open(&fp, "/tmp/apple.snap", FA_CREATE_ALWAYS | FA_WRITE);
+            UINT wb;
+            f_write(&fp, vram, sizeof(vram), &wb); // TODO: save only pages, requerid to be saved
+            f_close(&fp);
+            gpio_put(PICO_DEFAULT_LED_PIN, false);
+        }
+        fb_needs_clear = true;
+
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+        // Scan for disk images
+        int count = disk_scan_directory(selected_dir);
+        if (count < 0) {
+            count = -count;
+            strcpy(selected_dir, "/");
+        }
+        printf("Found %d disk images\n", count);
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+
         ui_state = DISK_UI_SELECT_DRIVE;
         selected_drive = 0;
         ui_dirty = true;
@@ -295,6 +334,16 @@ void disk_ui_show(void) {
 }
 
 void disk_ui_hide(void) {
+    { // TODO: error handling
+        gpio_put(PICO_DEFAULT_LED_PIN, true);
+        if (FR_OK == f_open(&fp, "/tmp/apple.snap", FA_READ)) {
+            UINT rb;
+            f_read(&fp, vram, sizeof(vram), &rb);
+            f_close(&fp);
+        }
+        gpio_put(PICO_DEFAULT_LED_PIN, false);
+    }
+
     ui_state = DISK_UI_HIDDEN;
     ui_rendered = false;
     ui_dirty = false;
@@ -310,7 +359,8 @@ void disk_ui_toggle(void) {
     }
 }
 
-bool disk_ui_is_visible(void) {
+bool __scratch_x() disk_ui_is_visible(void) {
+    __dmb();
     return ui_state != DISK_UI_HIDDEN;
 }
 
@@ -331,6 +381,7 @@ void disk_ui_show_loading(void) {
 
 // Handle loading complete - mount disk and perform action
 static void handle_disk_loaded(void) {
+    disk_ui_hide();
     if (g_mii) {
         int preserve_state = (selected_action == 1) ? 1 : 0;  // INSERT preserves state
         if (disk_mount_to_emulator(selected_drive, g_mii, g_disk2_slot, preserve_state) == 0) {
@@ -365,8 +416,9 @@ static void handle_disk_loaded(void) {
     } else {
         MII_DEBUG_PRINTF("Disk UI: warning - no emulator reference, disk not mounted\n");
     }
-    disk_ui_hide();
 }
+
+#define has_parent_dir  (strcmp(selected_dir, "/") != 0)
 
 bool disk_ui_handle_key(uint8_t key) {
     if (ui_state == DISK_UI_HIDDEN || ui_state == DISK_UI_LOADING) {
@@ -376,6 +428,7 @@ bool disk_ui_handle_key(uint8_t key) {
     MII_DEBUG_PRINTF("Disk UI key: 0x%02X in state %d\n", key, ui_state);
     
     bool handled = false;
+    int total_items = g_disk_count + (has_parent_dir ? 1 : 0);
     
     switch (key) {
         case 0x1B:  // Escape
@@ -399,13 +452,71 @@ bool disk_ui_handle_key(uint8_t key) {
                 scroll_offset = 0;
                 ui_dirty = true;
                 MII_DEBUG_PRINTF("Disk UI: selecting file for drive %d\n", selected_drive + 1);
-            } else if (ui_state == DISK_UI_SELECT_FILE) {
+                handled = true;
+                break;
+            }
+            if (ui_state == DISK_UI_SELECT_FILE) {
+
+                // --- virtual ".." ---
+                if (has_parent_dir && selected_file == 0) {
+                    // go to parent directory
+                    char *slash = strrchr(selected_dir, '/');
+                    if (slash && slash != selected_dir) {
+                        *slash = '\0';
+                    } else {
+                        // "/apple" -> "/"
+                        strcpy(selected_dir, "/");
+                    }
+
+                    int count = disk_scan_directory(selected_dir);
+                    if (count < 0) {
+                        count = -count;
+                        strcpy(selected_dir, "/");
+                    }
+                    selected_file = 0;
+                    scroll_offset = 0;
+                    ui_dirty = true;
+                    handled = true;
+                    break;
+                }
+                // --- real entry ---
+                int base = has_parent_dir ? 1 : 0;
+                int idx = selected_file - base;
+                if (idx >= 0 && idx < g_disk_count) {
+                    if (g_disk_list[idx].type == DIR_TYPE) {
+                        // enter directory
+                        if (strcmp(selected_dir, "/") == 0) {
+                            snprintf(selected_dir, sizeof(selected_dir),
+                                    "/%s", g_disk_list[idx].filename);
+                        } else {
+                            size_t len = strlen(selected_dir);
+                            snprintf(selected_dir + len,
+                                    sizeof(selected_dir) - len,
+                                    "/%s", g_disk_list[idx].filename);
+                        }
+
+                        int count = disk_scan_directory(selected_dir);
+                        if (count < 0) {
+                            count = -count;
+                            strcpy(selected_dir, "/");
+                        }
+
+                        selected_file = 0;
+                        scroll_offset = 0;
+                        ui_dirty = true;
+                    } else {
+                        // file -> action menu
+                        ui_state = DISK_UI_SELECT_ACTION;
+                        selected_action = 0;
+                        ui_dirty = true;
+                        MII_DEBUG_PRINTF("Disk UI: selecting action for file %d\n", selected_file);
+                    }
+                }
+                handled = true;
+                break;
                 // Proceed to action selection
-                ui_state = DISK_UI_SELECT_ACTION;
-                selected_action = 0;  // Default to Boot
-                ui_dirty = true;
-                MII_DEBUG_PRINTF("Disk UI: selecting action for file %d\n", selected_file);
-            } else if (ui_state == DISK_UI_SELECT_ACTION) {
+            }
+            if (ui_state == DISK_UI_SELECT_ACTION) {
                 if (selected_action == 2) {  // Cancel
                     ui_state = DISK_UI_SELECT_FILE;
                     ui_dirty = true;
@@ -416,8 +527,8 @@ bool disk_ui_handle_key(uint8_t key) {
                            selected_action == 0 ? "BOOT" : "INSERT");
                     
                     disk_ui_show_loading();
-                    
-                    if (disk_load_image(selected_drive, selected_file) == 0) {
+                    int base = has_parent_dir ? 1 : 0;
+                    if (disk_load_image(selected_drive, selected_file - base) == 0) {
                         handle_disk_loaded();
                     } else {
                         // Failed to load - go back to file selection
@@ -429,6 +540,36 @@ bool disk_ui_handle_key(uint8_t key) {
             handled = true;
             break;
             
+        case 0xFD:  // Page Up
+            if (ui_state == DISK_UI_SELECT_FILE && total_items > 0) {
+                int step = MAX_VISIBLE / 2;
+                if (selected_file > 0) {
+                    selected_file = (selected_file > step) ? (selected_file - step) : 0;
+
+                    if (selected_file < scroll_offset) {
+                        scroll_offset = selected_file;
+                    }
+                    ui_dirty = true;
+                }
+                handled = true;
+            }
+            break;
+        case 0xFE:  // Page Down
+            if (ui_state == DISK_UI_SELECT_FILE && total_items > 0) {
+                int step = MAX_VISIBLE / 2;
+                if (selected_file < total_items - 1) {
+                    int max_idx = total_items - 1;
+                    selected_file = (selected_file + step < max_idx) ? (selected_file + step) : max_idx;
+
+                    if (selected_file >= scroll_offset + MAX_VISIBLE) {
+                        scroll_offset = selected_file - MAX_VISIBLE + 1;
+                    }
+                    ui_dirty = true;
+                }
+                handled = true;
+            }
+            break;
+
         case 0x08:  // Left arrow / backspace
         case 0x0B:  // Up arrow
             if (ui_state == DISK_UI_SELECT_DRIVE) {
@@ -436,13 +577,13 @@ bool disk_ui_handle_key(uint8_t key) {
                 selected_drive = 1 - selected_drive;
                 ui_dirty = true;
             } else if (ui_state == DISK_UI_SELECT_FILE) {
-                if (g_disk_count > 0) {
+                if (total_items > 0) {
                     if (selected_file > 0) {
                         selected_file--;
                     } else {
                         // Wrap to last item
-                        selected_file = g_disk_count - 1;
-                        scroll_offset = (g_disk_count > MAX_VISIBLE) ? g_disk_count - MAX_VISIBLE : 0;
+                        selected_file = total_items - 1;
+                        scroll_offset = (total_items > MAX_VISIBLE) ? total_items - MAX_VISIBLE : 0;
                     }
                     if (selected_file < scroll_offset) {
                         scroll_offset = selected_file;
@@ -467,8 +608,8 @@ bool disk_ui_handle_key(uint8_t key) {
                 selected_drive = 1 - selected_drive;
                 ui_dirty = true;
             } else if (ui_state == DISK_UI_SELECT_FILE) {
-                if (g_disk_count > 0) {
-                    if (selected_file < g_disk_count - 1) {
+                if (total_items > 0) {
+                    if (selected_file < total_items - 1) {
                         selected_file++;
                     } else {
                         // Wrap to first item
@@ -522,6 +663,11 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
     
     if (state == DISK_UI_HIDDEN) {
         return;
+    }
+
+    if (fb_needs_clear) {
+        memset(framebuffer, 0x00, (width * height) >> 1); // 4 bpp
+        fb_needs_clear = false;
     }
 
     if (framebuffer != g_last_framebuffer) {
@@ -595,25 +741,52 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         char title[32];
         snprintf(title, sizeof(title), " Drive %d - Select Disk ", drive + 1);
         draw_header(framebuffer, width, UI_X, UI_Y, UI_WIDTH, title);
-        
+        int base = has_parent_dir ? 1 : 0;
+        int total_items = g_disk_count + base;        
         int y = content_y;
         
         if (g_disk_count == 0) {
             draw_string(framebuffer, width, content_x, y, "No disk images found", COLOR_TEXT);
-            draw_string(framebuffer, width, content_x, y + LINE_HEIGHT, "Place .dsk/.woz/.nib files in /apple", COLOR_TEXT);
+            draw_string(framebuffer, width, content_x, y + LINE_HEIGHT, "Place .dsk/.woz/.nib files there", COLOR_TEXT);
         } else {
             // Calculate visible range
-            int visible = (g_disk_count < MAX_VISIBLE) ? g_disk_count : MAX_VISIBLE;
+            int visible = (total_items < MAX_VISIBLE) ? total_items : MAX_VISIBLE;
             int list_height = visible * LINE_HEIGHT;
             
             for (int i = 0; i < visible; i++) {
-                int idx = scroll + i;
-                if (idx >= g_disk_count) break;
-                
-                bool is_selected = (idx == sel_file);
-                // Leave room for scrollbar (6 pixels)
-                draw_menu_item(framebuffer, width, content_x, y, content_width - 8, 
-                              g_disk_list[idx].filename, max_chars - 2, is_selected);
+                int ui_idx = scroll + i;
+                if (ui_idx >= total_items) break;
+
+                bool is_selected = (ui_idx == sel_file);
+
+                if (base && ui_idx == 0) {
+                    // virtual ".."
+                    draw_menu_item(
+                        framebuffer,
+                        width,
+                        content_x,
+                        y,
+                        content_width - 8,
+                        "..",
+                        max_chars - 2,
+                        is_selected
+                    );
+                } else {
+                    int real_idx = ui_idx - base;
+                    if (real_idx < 0 || real_idx >= g_disk_count) break;
+
+                    draw_menu_item(
+                        framebuffer,
+                        width,
+                        content_x,
+                        y,
+                        content_width - 8,
+                        g_disk_list[real_idx].filename,
+                        max_chars - 2,
+                        is_selected
+                    );
+                }
+
                 y += LINE_HEIGHT;
             }
             
@@ -640,7 +813,8 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         
         // Show selected file
         char file_label[64];
-        snprintf(file_label, sizeof(file_label), "File: %.40s", g_disk_list[sel_file].filename);
+        int base = has_parent_dir ? 1 : 0;
+        snprintf(file_label, sizeof(file_label), "File: %.40s", g_disk_list[sel_file - base].filename);
         draw_string_truncated(framebuffer, width, content_x, y, file_label, max_chars, COLOR_TEXT);
         y += LINE_HEIGHT + 8;
         

@@ -24,7 +24,10 @@
 #include "debug_log.h"
 
 // Global state
-disk_entry_t g_disk_list[MAX_DISK_IMAGES];
+extern uint8_t vram[2 * RAM_PAGES_PER_POOL * RAM_PAGE_SIZE];
+#define MAX_DISK_IMAGES (sizeof(vram) / sizeof(disk_entry_t))
+disk_entry_t* g_disk_list = (disk_entry_t*)vram;//[MAX_DISK_IMAGES];
+
 int g_disk_count = 0;
 loaded_disk_t g_loaded_disks[2] = {0};
 
@@ -40,20 +43,21 @@ static bool sd_mounted = false;
 #define htole16(x) (x)
 #endif
 
+// reduce stack usage, by global variables
+FIL fp;
+char path[128];
+char selected_dir[128] __scratch_y("selected_dir") = "/apple";
+
 static bool disk_open_image_file(const char *filename, FIL *out_fp, char *out_path, size_t out_path_len) {
     if (!sd_mounted)
         return false;
     if (!filename || !out_fp)
         return false;
 
-    char path[128];
-    snprintf(path, sizeof(path), "/apple/%s", filename);
+    snprintf(path, sizeof(path), "%s/%s", selected_dir, filename);
     FRESULT fr = f_open(out_fp, path, FA_READ);
     if (fr != FR_OK) {
-        snprintf(path, sizeof(path), "/%s", filename);
-        fr = f_open(out_fp, path, FA_READ);
-        if (fr != FR_OK)
-            return false;
+        return false;
     }
     if (out_path && out_path_len) {
         strncpy(out_path, path, out_path_len - 1);
@@ -184,36 +188,27 @@ fail:
 }
 
 static int disk_load_floppy_nib_from_fatfs(mii_floppy_t *floppy, FIL *fp) {
-    uint8_t *track_buf = (uint8_t *)malloc(MII_FLOPPY_MAX_TRACK_SIZE);
-    if (!track_buf) {
-        printf("%s: out of memory\n", __func__);
-        return -1;
-    }
     for (int track = 0; track < 35; track++) {
         const uint32_t off = (uint32_t)(track * MII_FLOPPY_MAX_TRACK_SIZE);
         FRESULT fr = f_lseek(fp, off);
         if (fr != FR_OK) {
             printf("%s: f_lseek(%lu) failed: %d\n", __func__, (unsigned long)off, fr);
-            free(track_buf);
             return -1;
         }
         UINT br = 0;
         fr = f_read(fp, track_buf, MII_FLOPPY_MAX_TRACK_SIZE, &br);
         if (fr != FR_OK || br != MII_FLOPPY_MAX_TRACK_SIZE) {
             printf("%s: f_read track failed: fr=%d br=%u\n", __func__, fr, br);
-            free(track_buf);
             return -1;
         }
         uint8_t* track_data = floppy->curr_track_data;
         mii_floppy_nib_render_track(track_buf, &floppy->tracks[track], track_data);
         if (floppy->tracks[track].bit_count < 100) {
             printf("%s: invalid NIB track %d\n", __func__, track);
-            free(track_buf);
             return -1;
         }
         floppy->tracks[track].dirty = 0;
     }
-    free(track_buf);
     return 0;
 }
 
@@ -227,12 +222,6 @@ disk_load_floppy_nib_track_from_fatfs(
     if (track_id >= 35)
         return 0;
 
-    uint8_t *track_buf = (uint8_t *)malloc(MII_FLOPPY_MAX_TRACK_SIZE);
-    if (!track_buf) {
-        printf("%s: out of memory\n", __func__);
-        return -1;
-    }
-
     const uint32_t off =
         (uint32_t)track_id * MII_FLOPPY_MAX_TRACK_SIZE;
 
@@ -240,7 +229,6 @@ disk_load_floppy_nib_track_from_fatfs(
     if (fr != FR_OK) {
         printf("%s: f_lseek(%lu) failed: %d\n",
                          __func__, (unsigned long)off, fr);
-        free(track_buf);
         return -1;
     }
 
@@ -249,7 +237,6 @@ disk_load_floppy_nib_track_from_fatfs(
     if (fr != FR_OK || br != MII_FLOPPY_MAX_TRACK_SIZE) {
         printf("%s: f_read track %d failed: fr=%d br=%u\n",
                          __func__, track_id, fr, br);
-        free(track_buf);
         return -1;
     }
 
@@ -260,14 +247,11 @@ disk_load_floppy_nib_track_from_fatfs(
     if (dst->bit_count < 100) {
         printf("%s: invalid NIB track %d\n",
                          __func__, track_id);
-        free(track_buf);
         return -1;
     }
 
     dst->dirty  = 0;
     dst->virgin = 0;
-
-    free(track_buf);
     return 0;
 }
 
@@ -535,6 +519,7 @@ fail:
     return -1;
 }
 
+#if HACK_DEBUG
 void logMsg(char* msg) {
     static FIL fileD;
     f_open(&fileD, "/apple.log", FA_WRITE | FA_OPEN_APPEND);
@@ -542,6 +527,7 @@ void logMsg(char* msg) {
     f_write(&fileD, msg, strlen(msg), &bw);
     f_close(&fileD);
 }
+#endif
 
 // Get disk type from filename extension
 disk_type_t disk_get_type(const char *filename) {
@@ -583,16 +569,23 @@ int disk_loader_init(void) {
     
     sd_mounted = true;
     printf("SD card mounted successfully\n");
-    
-    // Scan for disk images
-    int count = disk_scan_directory();
-    printf("Found %d disk images\n", count);
-    
     return 0;
 }
 
-// Scan /apple directory for disk images
-int disk_scan_directory(void) {
+static int disk_entry_cmp_name(const void *a, const void *b) {
+    const disk_entry_t *da = (const disk_entry_t *)a;
+    const disk_entry_t *db = (const disk_entry_t *)b;
+
+    // 1. Directories first
+    if (da->type == DIR_TYPE && db->type != DIR_TYPE) return -1;
+    if (da->type != DIR_TYPE && db->type == DIR_TYPE) return  1;
+
+    // 2. Same type -> sort by name
+    return strcmp(da->filename, db->filename);
+}
+
+// Scan directory for disk images and directories
+int disk_scan_directory(const char* __restrict path) {
     if (!sd_mounted) {
         printf("SD card not mounted\n");
         return 0;
@@ -602,30 +595,32 @@ int disk_scan_directory(void) {
     FILINFO fno;
     
     g_disk_count = 0;
+
+    int wa_mark = 1;
     
     // First try /apple directory
-    FRESULT fr = f_opendir(&dir, "/apple");
+    FRESULT fr = f_opendir(&dir, path);
     if (fr != FR_OK) {
-        // Try root directory
-        printf("/apple not found, checking root directory\n");
+        // Try root directory (temporary W/A)
+        printf("%s not found, checking root directory\n", path);
         fr = f_opendir(&dir, "/");
         if (fr != FR_OK) {
             printf("Failed to open directory: %d\n", fr);
             return 0;
         }
+        wa_mark = -1; // return negative result, to mark directory was replaced by root
     } else {
-        printf("Scanning /apple directory...\n");
+        printf("Scanning %s directory...\n", path);
     }
     
     while (g_disk_count < MAX_DISK_IMAGES) {
         fr = f_readdir(&dir, &fno);
         if (fr != FR_OK || fno.fname[0] == 0) break;
-        
-        // Skip directories
-        if (fno.fattrib & AM_DIR) continue;
-        
-        // Check if it's a disk image
-        disk_type_t type = disk_get_type(fno.fname);
+
+        disk_type_t type;
+        if (fno.fattrib & AM_DIR) type = DIR_TYPE;
+        else type = disk_get_type(fno.fname);
+
         if (type == DISK_TYPE_UNKNOWN) continue;
         
         // Add to list
@@ -641,7 +636,17 @@ int disk_scan_directory(void) {
     }
     
     f_closedir(&dir);
-    return g_disk_count;
+
+
+    if (g_disk_count > 1) {
+        qsort(
+            g_disk_list,
+            g_disk_count,
+            sizeof(disk_entry_t),
+            disk_entry_cmp_name
+        );
+    }    
+    return wa_mark * g_disk_count;
 }
 
 // Select a disk image for a drive (image is read from SD on mount)
@@ -662,8 +667,6 @@ int disk_load_image(int drive, int index) {
     memset(disk, 0, sizeof(*disk));
 
     // Validate the file exists by opening it, then close immediately.
-    FIL fp;
-    char path[128];
     if (!disk_open_image_file(entry->filename, &fp, path, sizeof(path))) {
         printf("Failed to open image for %s\n", entry->filename);
         return -1;
@@ -726,9 +729,6 @@ static uint8_t disk_type_to_mii_format(disk_type_t type, const char *filename) {
 
 // Static mii_dd_file_t structures for the two drives
 static mii_dd_file_t g_dd_files[2] = {0};
-// reduce stack usage, by global variables
-static FIL fp;
-static char path[128];
 
 // Mount a loaded disk image to the emulator
 // preserve_state: if true, keeps motor/head position for disk swap during game

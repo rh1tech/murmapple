@@ -12,9 +12,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Maximum number of disk images we can list
-#define MAX_DISK_IMAGES 500
-
 // Maximum filename length
 #define MAX_FILENAME_LEN 64
 
@@ -24,6 +21,7 @@ typedef enum {
     DISK_TYPE_DSK,      // .dsk, .do, .po - 140KB sector images
     DISK_TYPE_NIB,      // .nib - 232KB nibble images
     DISK_TYPE_WOZ,      // .woz - WOZ format (variable size)
+    DIR_TYPE,           // W/A to use directories in the same list
 } disk_type_t;
 
 // Disk image sizes
@@ -48,7 +46,7 @@ typedef struct {
 } loaded_disk_t;
 
 // Global state
-extern disk_entry_t g_disk_list[MAX_DISK_IMAGES];
+extern disk_entry_t* g_disk_list;
 extern int g_disk_count;
 extern loaded_disk_t g_loaded_disks[2];  // Drive 1 and Drive 2
 
@@ -58,7 +56,7 @@ int disk_loader_init(void);
 
 // Scan /apple directory for disk images
 // Returns number of images found
-int disk_scan_directory(void);
+int disk_scan_directory(const char* __restrict path);
 
 // Select a disk image for a drive (does not read the full image into PSRAM)
 // drive: 0 or 1 (Drive 1 or Drive 2)
