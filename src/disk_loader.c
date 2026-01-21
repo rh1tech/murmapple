@@ -493,6 +493,20 @@ static int disk_load_floppy_bdsk_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t 
     return 0;
 }
 
+static bool disk_bdsk_exists(const char *filename) {
+    FILINFO fno;
+    const char *dot = strrchr(filename, '.');
+    bool is_bdsk = (dot && strcasecmp(dot, ".bdsk") == 0);
+
+    if (is_bdsk) {
+        snprintf(path, sizeof(path), "%s/%s", selected_dir, filename);
+    } else {
+        snprintf(path, sizeof(path), "%s/%s.bdsk", selected_dir, filename);
+    }
+
+    return f_stat(path, &fno) == FR_OK;
+}
+
 #if HACK_DEBUG
 void logMsg(char* msg) {
     static FIL fileD;
@@ -774,7 +788,7 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
 
     // Load the disk image into the floppy structure
     res = -1;
-    switch (file->format) {
+    if (!disk_bdsk_exists(file->pathname)) switch (file->format) {
         case MII_DD_FILE_DSK:
         case MII_DD_FILE_DO:
         case MII_DD_FILE_PO:
@@ -793,6 +807,11 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
             printf("%s: unsupported format %d\n", __func__, file->format);
             res = -1;
             break;
+    } else {
+        // bdsk есть → НЕ КОНВЕРТИРУЕМ
+        if (!disk_open_bdsk_image_file(&fp, file->pathname, path, sizeof(path)))
+            return -1;
+        res = disk_load_floppy_bdsk_from_fatfs(floppy, file, &fp);        
     }
     f_close(&fp);
     if (res >= 0) {
