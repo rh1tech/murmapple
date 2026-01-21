@@ -4,31 +4,24 @@
 #
 # release.sh - Build all release variants of murmapple
 #
-# Creates firmware files for each board variant:
+# Creates firmware files for each combination:
 #
-# RP2350 with PSRAM (M1, M2) at each clock speed:
-#   - Non-overclocked: 252 MHz CPU, 100 MHz PSRAM
-#   - Medium overclock: 378 MHz CPU, 133 MHz PSRAM
-#   - Max overclock: 504 MHz CPU, 166 MHz PSRAM
+# RP2350 variants (M1, M2):
+#   - HDMI + I2S (with and without PSRAM)
+#   - HDMI + PWM (with and without PSRAM)
+#   - VGA + I2S (with and without PSRAM)
+#   - VGA + PWM (with and without PSRAM)
 #
-# RP2350 without PSRAM (M1, M2):
-#   - Same clock speeds as above, for boards without PSRAM
+# MOS2 variants (M1, M2) - Murmulator OS:
+#   - Same combinations as above (with PSRAM only)
 #
-# RP2040 (limited support, no PSRAM):
-#   - Standard: 125 MHz CPU
-#   - Overclocked: 252 MHz CPU
+# RP2040 variants (M1, M2) - no PSRAM:
+#   - HDMI + I2S
+#   - HDMI + PWM
+#   - VGA + I2S
+#   - VGA + PWM
 #
-# Output formats:
-#   - UF2 files for direct flashing via BOOTSEL mode
-#   - m1p2/m2p2 files for Murmulator OS (RP2350 only)
-#
-# Output format: murmapple_mX_Y_Z_A_BB.{uf2,m1p2,m2p2}
-#   X  = Board variant (1 or 2)
-#   Y  = CPU clock in MHz
-#   Z  = PSRAM clock in MHz, 'nopsram' for RP2350 without PSRAM, or 'rp2040' for RP2040
-#   A  = Major version
-#   BB = Minor version (zero-padded)
-#
+# Output format: murmapple_<board>_<video>_<audio>_<psram>_<version>.{uf2,m1p2,m2p2}
 
 set -e
 
@@ -108,249 +101,167 @@ echo "$MAJOR $MINOR" > "$VERSION_FILE"
 RELEASE_DIR="$SCRIPT_DIR/release"
 mkdir -p "$RELEASE_DIR"
 
-# RP2350 Build configurations (with PSRAM): "BOARD CPU_SPEED PSRAM_SPEED DESCRIPTION"
-RP2350_CONFIGS=(
-    "M1 252 100 non-overclocked"
-    "M1 378 133 medium-overclock"
-    "M1 504 166 max-overclock"
-    "M2 252 100 non-overclocked"
-    "M2 378 133 medium-overclock"
-    "M2 504 166 max-overclock"
-)
+# Configuration arrays
+BOARDS=("M1" "M2")
+VIDEO_TYPES=("HDMI" "VGA")
+AUDIO_TYPES=("I2S" "PWM")
+CPU_SPEED="252"  # No overclocking in release
+PSRAM_SPEED="100"  # Default PSRAM speed when enabled
 
-# RP2350 Build configurations (no PSRAM): "BOARD CPU_SPEED DESCRIPTION"
-RP2350_NOPSRAM_CONFIGS=(
-    "M1 252 non-overclocked"
-    "M1 378 medium-overclock"
-    "M1 504 max-overclock"
-    "M2 252 non-overclocked"
-    "M2 378 medium-overclock"
-    "M2 504 max-overclock"
-)
-
-# RP2040 Build configurations (limited support, no PSRAM): "BOARD CPU_SPEED DESCRIPTION"
-RP2040_CONFIGS=(
-    "M1 125 standard"
-    "M1 252 overclocked"
-    "M2 125 standard"
-    "M2 252 overclocked"
-)
-
+# Count total builds
+# RP2350 with PSRAM: 2 boards * 2 video * 2 audio = 8
+# RP2350 no PSRAM: 2 boards * 2 video * 2 audio = 8
+# MOS2: 2 boards * 2 video * 2 audio = 8
+# RP2040: 2 boards * 2 video * 2 audio = 8
+TOTAL_BUILDS=$((8 + 8 + 8 + 8))
 BUILD_COUNT=0
-# Total builds: RP2350 UF2 + RP2350 no-PSRAM UF2 + RP2350 MOS2 + RP2040 UF2
-TOTAL_BUILDS=$((${#RP2350_CONFIGS[@]} * 2 + ${#RP2350_NOPSRAM_CONFIGS[@]} + ${#RP2040_CONFIGS[@]}))
 
 echo ""
-echo -e "${YELLOW}Building $TOTAL_BUILDS firmware variants (RP2350 UF2 + MOS2 + RP2040)...${NC}"
+echo -e "${YELLOW}Building $TOTAL_BUILDS firmware variants...${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-echo ""
-echo -e "${CYAN}=== Building RP2350 UF2 firmware files ===${NC}"
-
-for config in "${RP2350_CONFIGS[@]}"; do
-    read -r BOARD CPU PSRAM DESC <<< "$config"
+# Function to build a single variant
+build_variant() {
+    local BOARD=$1
+    local VIDEO=$2
+    local AUDIO=$3
+    local PSRAM=$4      # "100" or "" for no PSRAM
+    local MOS2=$5       # "ON" or "OFF"
+    local PLATFORM=$6   # "rp2350" or "rp2040"
 
     BUILD_COUNT=$((BUILD_COUNT + 1))
 
-    # Board variant number
-    if [[ "$BOARD" == "M1" ]]; then
-        BOARD_NUM=1
-    else
-        BOARD_NUM=2
+    # Determine board number for filename
+    local BOARD_NUM=1
+    [[ "$BOARD" == "M2" ]] && BOARD_NUM=2
+
+    # Determine PICO_BOARD
+    local PICO_BOARD="pico2"
+    [[ "$PLATFORM" == "rp2040" ]] && PICO_BOARD="pico"
+
+    # Build output filename
+    local VIDEO_LC=$(echo "$VIDEO" | tr '[:upper:]' '[:lower:]')
+    local AUDIO_LC=$(echo "$AUDIO" | tr '[:upper:]' '[:lower:]')
+    local PSRAM_TAG="psram"
+    [[ -z "$PSRAM" ]] && PSRAM_TAG="nopsram"
+    [[ "$PLATFORM" == "rp2040" ]] && PSRAM_TAG="rp2040"
+
+    # Determine file extension
+    local EXT="uf2"
+    if [[ "$MOS2" == "ON" ]]; then
+        [[ "$BOARD" == "M1" ]] && EXT="m1p2"
+        [[ "$BOARD" == "M2" ]] && EXT="m2p2"
     fi
 
-    # Output filename
-    OUTPUT_NAME="murmapple_m${BOARD_NUM}_${CPU}_${PSRAM}_${VERSION}.uf2"
+    local OUTPUT_NAME="murmapple_m${BOARD_NUM}_${VIDEO_LC}_${AUDIO_LC}_${PSRAM_TAG}_${VERSION}.${EXT}"
 
     echo ""
     echo -e "${CYAN}[$BUILD_COUNT/$TOTAL_BUILDS] Building: $OUTPUT_NAME${NC}"
-    echo -e "  Board: $BOARD | CPU: ${CPU} MHz | PSRAM: ${PSRAM} MHz | $DESC"
+    echo -e "  Board: $BOARD | Video: $VIDEO | Audio: $AUDIO | PSRAM: ${PSRAM:-none} | MOS2: $MOS2"
 
     # Clean and create build directory
     rm -rf build
     mkdir build
     cd build
+
+    # Build cmake arguments
+    local CMAKE_ARGS="-DPICO_BOARD=$PICO_BOARD"
+    CMAKE_ARGS="$CMAKE_ARGS -DBOARD_VARIANT=$BOARD"
+    CMAKE_ARGS="$CMAKE_ARGS -DVIDEO_TYPE=$VIDEO"
+    CMAKE_ARGS="$CMAKE_ARGS -DAUDIO_TYPE=$AUDIO"
+    CMAKE_ARGS="$CMAKE_ARGS -DCPU_SPEED=$CPU_SPEED"
+
+    [[ -n "$PSRAM" ]] && CMAKE_ARGS="$CMAKE_ARGS -DPSRAM_SPEED=$PSRAM"
+    [[ "$MOS2" == "ON" ]] && CMAKE_ARGS="$CMAKE_ARGS -DMOS2=ON"
 
     # Configure with CMake
-    cmake .. \
-        -DPICO_BOARD=pico2 \
-        -DBOARD_VARIANT="$BOARD" \
-        -DCPU_SPEED="$CPU" \
-        -DPSRAM_SPEED="$PSRAM" \
-        > /dev/null 2>&1
+    if cmake $CMAKE_ARGS .. > /dev/null 2>&1; then
+        # Build
+        if make -j8 > /dev/null 2>&1; then
+            # Find and copy output file
+            local SRC_FILE="$SCRIPT_DIR/bin/Release/murmapple.${EXT}"
+            if [[ "$MOS2" == "ON" ]]; then
+                # MOS2 builds have special naming
+                local MOS2_EXT="m1p2"
+                [[ "$BOARD" == "M2" ]] && MOS2_EXT="m2p2"
+                SRC_FILE="$SCRIPT_DIR/bin/Release/murmapple.${MOS2_EXT}"
+            fi
 
-    # Build
-    if make -j8 > /dev/null 2>&1; then
-        # Copy UF2 to release directory (UF2 is output to bin/Release/)
-        if [[ -f "$SCRIPT_DIR/bin/Release/murmapple.uf2" ]]; then
-            cp "$SCRIPT_DIR/bin/Release/murmapple.uf2" "$RELEASE_DIR/$OUTPUT_NAME"
-            echo -e "  ${GREEN}✓ Success${NC} → release/$OUTPUT_NAME"
+            if [[ -f "$SRC_FILE" ]]; then
+                cp "$SRC_FILE" "$RELEASE_DIR/$OUTPUT_NAME"
+                echo -e "  ${GREEN}✓ Success${NC} → release/$OUTPUT_NAME"
+            else
+                echo -e "  ${RED}✗ Output file not found${NC}"
+            fi
         else
-            echo -e "  ${RED}✗ UF2 not found${NC}"
+            echo -e "  ${RED}✗ Build failed${NC}"
         fi
     else
-        echo -e "  ${RED}✗ Build failed${NC}"
+        echo -e "  ${RED}✗ CMake failed${NC}"
     fi
 
     cd "$SCRIPT_DIR"
-done
+}
 
+# ============================================================================
+# RP2350 with PSRAM (UF2)
+# ============================================================================
 echo ""
-echo -e "${CYAN}=== Building RP2350 UF2 firmware files (no PSRAM) ===${NC}"
+echo -e "${CYAN}=== Building RP2350 UF2 firmware (with PSRAM) ===${NC}"
 
-for config in "${RP2350_NOPSRAM_CONFIGS[@]}"; do
-    read -r BOARD CPU DESC <<< "$config"
-
-    BUILD_COUNT=$((BUILD_COUNT + 1))
-
-    # Board variant number
-    if [[ "$BOARD" == "M1" ]]; then
-        BOARD_NUM=1
-    else
-        BOARD_NUM=2
-    fi
-
-    # Output filename (no PSRAM)
-    OUTPUT_NAME="murmapple_m${BOARD_NUM}_${CPU}_nopsram_${VERSION}.uf2"
-
-    echo ""
-    echo -e "${CYAN}[$BUILD_COUNT/$TOTAL_BUILDS] Building: $OUTPUT_NAME${NC}"
-    echo -e "  Board: $BOARD | CPU: ${CPU} MHz | No PSRAM (RP2350) | $DESC"
-
-    # Clean and create build directory
-    rm -rf build
-    mkdir build
-    cd build
-
-    # Configure with CMake for RP2350 without PSRAM
-    cmake .. \
-        -DPICO_BOARD=pico2 \
-        -DBOARD_VARIANT="$BOARD" \
-        -DCPU_SPEED="$CPU" \
-        > /dev/null 2>&1
-
-    # Build
-    if make -j8 > /dev/null 2>&1; then
-        # Copy UF2 to release directory
-        if [[ -f "$SCRIPT_DIR/bin/Release/murmapple.uf2" ]]; then
-            cp "$SCRIPT_DIR/bin/Release/murmapple.uf2" "$RELEASE_DIR/$OUTPUT_NAME"
-            echo -e "  ${GREEN}✓ Success${NC} → release/$OUTPUT_NAME"
-        else
-            echo -e "  ${RED}✗ UF2 not found${NC}"
-        fi
-    else
-        echo -e "  ${RED}✗ Build failed${NC}"
-    fi
-
-    cd "$SCRIPT_DIR"
+for BOARD in "${BOARDS[@]}"; do
+    for VIDEO in "${VIDEO_TYPES[@]}"; do
+        for AUDIO in "${AUDIO_TYPES[@]}"; do
+            build_variant "$BOARD" "$VIDEO" "$AUDIO" "$PSRAM_SPEED" "OFF" "rp2350"
+        done
+    done
 done
 
+# ============================================================================
+# RP2350 without PSRAM (UF2)
+# ============================================================================
 echo ""
-echo -e "${CYAN}=== Building RP2350 MOS2 firmware files (Murmulator OS) ===${NC}"
+echo -e "${CYAN}=== Building RP2350 UF2 firmware (no PSRAM) ===${NC}"
 
-for config in "${RP2350_CONFIGS[@]}"; do
-    read -r BOARD CPU PSRAM DESC <<< "$config"
-
-    BUILD_COUNT=$((BUILD_COUNT + 1))
-
-    # Board variant number and MOS2 extension
-    if [[ "$BOARD" == "M1" ]]; then
-        BOARD_NUM=1
-        MOS2_EXT="m1p2"
-    else
-        BOARD_NUM=2
-        MOS2_EXT="m2p2"
-    fi
-
-    # Output filename for MOS2
-    OUTPUT_NAME="murmapple_m${BOARD_NUM}_${CPU}_${PSRAM}_${VERSION}.${MOS2_EXT}"
-
-    echo ""
-    echo -e "${CYAN}[$BUILD_COUNT/$TOTAL_BUILDS] Building: $OUTPUT_NAME${NC}"
-    echo -e "  Board: $BOARD | CPU: ${CPU} MHz | PSRAM: ${PSRAM} MHz | $DESC | MOS2"
-
-    # Clean and create build directory
-    rm -rf build
-    mkdir build
-    cd build
-
-    # Configure with CMake (MOS2 enabled)
-    cmake .. \
-        -DPICO_BOARD=pico2 \
-        -DBOARD_VARIANT="$BOARD" \
-        -DCPU_SPEED="$CPU" \
-        -DPSRAM_SPEED="$PSRAM" \
-        -DMOS2=ON \
-        > /dev/null 2>&1
-
-    # Build
-    if make -j8 > /dev/null 2>&1; then
-        # MOS2 builds produce murmapple.m1p2 or murmapple.m2p2 (renamed from .uf2)
-        MOS2_BUILD_NAME="murmapple.${MOS2_EXT}"
-        if [[ -f "$SCRIPT_DIR/bin/Release/${MOS2_BUILD_NAME}" ]]; then
-            cp "$SCRIPT_DIR/bin/Release/${MOS2_BUILD_NAME}" "$RELEASE_DIR/$OUTPUT_NAME"
-            echo -e "  ${GREEN}✓ Success${NC} → release/$OUTPUT_NAME"
-        else
-            echo -e "  ${RED}✗ ${MOS2_EXT} file not found${NC}"
-        fi
-    else
-        echo -e "  ${RED}✗ Build failed${NC}"
-    fi
-
-    cd "$SCRIPT_DIR"
+for BOARD in "${BOARDS[@]}"; do
+    for VIDEO in "${VIDEO_TYPES[@]}"; do
+        for AUDIO in "${AUDIO_TYPES[@]}"; do
+            build_variant "$BOARD" "$VIDEO" "$AUDIO" "" "OFF" "rp2350"
+        done
+    done
 done
 
+# ============================================================================
+# MOS2 (Murmulator OS) - with PSRAM only
+# ============================================================================
 echo ""
-echo -e "${CYAN}=== Building RP2040 UF2 firmware files (limited support) ===${NC}"
+echo -e "${CYAN}=== Building MOS2 firmware (Murmulator OS) ===${NC}"
 
-for config in "${RP2040_CONFIGS[@]}"; do
-    read -r BOARD CPU DESC <<< "$config"
-
-    BUILD_COUNT=$((BUILD_COUNT + 1))
-
-    # Board variant number
-    if [[ "$BOARD" == "M1" ]]; then
-        BOARD_NUM=1
-    else
-        BOARD_NUM=2
-    fi
-
-    # Output filename (RP2040 specific naming)
-    OUTPUT_NAME="murmapple_m${BOARD_NUM}_${CPU}_rp2040_${VERSION}.uf2"
-
-    echo ""
-    echo -e "${CYAN}[$BUILD_COUNT/$TOTAL_BUILDS] Building: $OUTPUT_NAME${NC}"
-    echo -e "  Board: $BOARD | CPU: ${CPU} MHz | RP2040 | $DESC"
-
-    # Clean and create build directory
-    rm -rf build
-    mkdir build
-    cd build
-
-    # Configure with CMake for RP2040 (no PSRAM_SPEED)
-    cmake .. \
-        -DPICO_BOARD=pico \
-        -DBOARD_VARIANT="$BOARD" \
-        -DCPU_SPEED="$CPU" \
-        > /dev/null 2>&1
-
-    # Build
-    if make -j8 > /dev/null 2>&1; then
-        # Copy UF2 to release directory
-        if [[ -f "$SCRIPT_DIR/bin/Release/murmapple.uf2" ]]; then
-            cp "$SCRIPT_DIR/bin/Release/murmapple.uf2" "$RELEASE_DIR/$OUTPUT_NAME"
-            echo -e "  ${GREEN}✓ Success${NC} → release/$OUTPUT_NAME"
-        else
-            echo -e "  ${RED}✗ UF2 not found${NC}"
-        fi
-    else
-        echo -e "  ${RED}✗ Build failed${NC}"
-    fi
-
-    cd "$SCRIPT_DIR"
+for BOARD in "${BOARDS[@]}"; do
+    for VIDEO in "${VIDEO_TYPES[@]}"; do
+        for AUDIO in "${AUDIO_TYPES[@]}"; do
+            build_variant "$BOARD" "$VIDEO" "$AUDIO" "$PSRAM_SPEED" "ON" "rp2350"
+        done
+    done
 done
 
-# Clean up build directory
+# ============================================================================
+# RP2040 (no PSRAM)
+# ============================================================================
+echo ""
+echo -e "${CYAN}=== Building RP2040 UF2 firmware ===${NC}"
+
+for BOARD in "${BOARDS[@]}"; do
+    for VIDEO in "${VIDEO_TYPES[@]}"; do
+        for AUDIO in "${AUDIO_TYPES[@]}"; do
+            build_variant "$BOARD" "$VIDEO" "$AUDIO" "" "OFF" "rp2040"
+        done
+    done
+done
+
+# ============================================================================
+# Clean up and create ZIP archives
+# ============================================================================
 rm -rf build bin
 
 echo ""
@@ -358,41 +269,33 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${GREEN}Release build complete!${NC}"
 echo ""
 
-# Create ZIP archives
 echo -e "${CYAN}=== Creating ZIP archives ===${NC}"
 echo ""
 
 cd "$RELEASE_DIR"
 
-# M1 with PSRAM
-ZIP_M1="murmapple_m1_${VERSION}.zip"
-zip -q "$ZIP_M1" murmapple_m1_*_1??_${VERSION}.uf2 2>/dev/null && \
-    echo -e "  ${GREEN}✓${NC} $ZIP_M1" || echo -e "  ${YELLOW}⚠ No M1 PSRAM files${NC}"
+# Create ZIPs by category
+for BOARD in "m1" "m2"; do
+    # PSRAM versions
+    ZIP_PSRAM="murmapple_${BOARD}_psram_${VERSION}.zip"
+    zip -q "$ZIP_PSRAM" murmapple_${BOARD}_*_psram_${VERSION}.uf2 2>/dev/null && \
+        echo -e "  ${GREEN}✓${NC} $ZIP_PSRAM" || echo -e "  ${YELLOW}⚠ No ${BOARD} PSRAM files${NC}"
 
-# M1 without PSRAM
-ZIP_M1_NOPSRAM="murmapple_m1_nopsram_${VERSION}.zip"
-zip -q "$ZIP_M1_NOPSRAM" murmapple_m1_*_nopsram_${VERSION}.uf2 2>/dev/null && \
-    echo -e "  ${GREEN}✓${NC} $ZIP_M1_NOPSRAM" || echo -e "  ${YELLOW}⚠ No M1 nopsram files${NC}"
+    # No-PSRAM versions
+    ZIP_NOPSRAM="murmapple_${BOARD}_nopsram_${VERSION}.zip"
+    zip -q "$ZIP_NOPSRAM" murmapple_${BOARD}_*_nopsram_${VERSION}.uf2 2>/dev/null && \
+        echo -e "  ${GREEN}✓${NC} $ZIP_NOPSRAM" || echo -e "  ${YELLOW}⚠ No ${BOARD} nopsram files${NC}"
 
-# M2 with PSRAM
-ZIP_M2="murmapple_m2_${VERSION}.zip"
-zip -q "$ZIP_M2" murmapple_m2_*_1??_${VERSION}.uf2 2>/dev/null && \
-    echo -e "  ${GREEN}✓${NC} $ZIP_M2" || echo -e "  ${YELLOW}⚠ No M2 PSRAM files${NC}"
+    # RP2040 versions
+    ZIP_RP2040="murmapple_${BOARD}_rp2040_${VERSION}.zip"
+    zip -q "$ZIP_RP2040" murmapple_${BOARD}_*_rp2040_${VERSION}.uf2 2>/dev/null && \
+        echo -e "  ${GREEN}✓${NC} $ZIP_RP2040" || echo -e "  ${YELLOW}⚠ No ${BOARD} rp2040 files${NC}"
+done
 
-# M2 without PSRAM
-ZIP_M2_NOPSRAM="murmapple_m2_nopsram_${VERSION}.zip"
-zip -q "$ZIP_M2_NOPSRAM" murmapple_m2_*_nopsram_${VERSION}.uf2 2>/dev/null && \
-    echo -e "  ${GREEN}✓${NC} $ZIP_M2_NOPSRAM" || echo -e "  ${YELLOW}⚠ No M2 nopsram files${NC}"
-
-# MOS2 (Murmulator OS)
+# MOS2 archive
 ZIP_MOS2="murmapple_mos2_${VERSION}.zip"
 zip -q "$ZIP_MOS2" murmapple_*_${VERSION}.m?p2 2>/dev/null && \
     echo -e "  ${GREEN}✓${NC} $ZIP_MOS2" || echo -e "  ${YELLOW}⚠ No MOS2 files${NC}"
-
-# RP2040
-ZIP_RP2040="murmapple_rp2040_${VERSION}.zip"
-zip -q "$ZIP_RP2040" murmapple_*_rp2040_${VERSION}.uf2 2>/dev/null && \
-    echo -e "  ${GREEN}✓${NC} $ZIP_RP2040" || echo -e "  ${YELLOW}⚠ No RP2040 files${NC}"
 
 # Remove individual files after zipping (keep only ZIPs)
 rm -f murmapple_*.uf2 murmapple_*.m?p2 2>/dev/null

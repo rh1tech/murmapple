@@ -25,10 +25,20 @@ set(BOARD_VARIANT "M2" CACHE STRING "Board variant: M1 or M2")
 # CPU overclock configuration (252, 378, 504 MHz)
 set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
-set(VIDEO_HDMI ON)
-#set(VIDEO_VGA ON)
+# Video output configuration (HDMI or VGA)
+set(VIDEO_TYPE "HDMI" CACHE STRING "Video output: HDMI or VGA")
+
+if(VIDEO_TYPE STREQUAL "HDMI")
+    set(VIDEO_HDMI ON)
+elseif(VIDEO_TYPE STREQUAL "VGA")
+    set(VIDEO_VGA ON)
+endif()
+
+# Audio output configuration (I2S or PWM)
+set(AUDIO_TYPE "I2S" CACHE STRING "Audio output: I2S or PWM")
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
+# Leave unset for no-PSRAM builds
 #set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
 
 # MOS2 support (generate .m1p2 or m2p2 for Murmulator OS instead of .uf2)
@@ -205,18 +215,27 @@ target_compile_definitions(${BUILD_NAME} PRIVATE
     CPU_VOLTAGE=${CPU_VOLTAGE}
     MII_65C02_DIRECT_ACCESS=1
     MII_RP2350=1
-    # I2S Audio configuration
-    # NOTE: HDMI uses PIO1, PS/2 uses PIO0 SM0 (claimed dynamically)
-    # So I2S uses PIO0 SM2 (claimed statically before PS/2 init)
-    PICO_AUDIO_I2S_PIO=0
-    PICO_AUDIO_I2S_STATE_MACHINE=2
-    PICO_AUDIO_I2S_DMA_IRQ=1
-    PICO_AUDIO_I2S_DMA_CHANNEL=10
-    PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
-    PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
-    FEATURE_AUDIO_I2S=1
-#    FEATURE_AUDIO_PWM=1
 )
+
+# Audio configuration based on AUDIO_TYPE
+if(AUDIO_TYPE STREQUAL "I2S")
+    target_compile_definitions(${BUILD_NAME} PRIVATE
+        # I2S Audio configuration
+        # NOTE: HDMI uses PIO1, PS/2 uses PIO0 SM0 (claimed dynamically)
+        # So I2S uses PIO0 SM2 (claimed statically before PS/2 init)
+        PICO_AUDIO_I2S_PIO=0
+        PICO_AUDIO_I2S_STATE_MACHINE=2
+        PICO_AUDIO_I2S_DMA_IRQ=1
+        PICO_AUDIO_I2S_DMA_CHANNEL=10
+        PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
+        PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
+        FEATURE_AUDIO_I2S=1
+    )
+elseif(AUDIO_TYPE STREQUAL "PWM")
+    target_compile_definitions(${BUILD_NAME} PRIVATE
+        FEATURE_AUDIO_PWM=1
+    )
+endif()
 
 if (VIDEO_HDMI)
     target_compile_definitions(${BUILD_NAME} PRIVATE
