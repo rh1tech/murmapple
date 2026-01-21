@@ -73,15 +73,34 @@ Two GPIO layouts are supported: **M1** and **M2**.
 
 ## Firmware Versions
 
-MurmApple is available in three speed configurations:
+MurmApple is available in multiple configurations:
+
+### RP2350 with PSRAM (Recommended)
+
+| Speed | CPU Clock | PSRAM Clock | Description |
+|-------|-----------|-------------|-------------|
+| Stock | 252 MHz   | 100 MHz | Default, stable operation |
+| Medium OC | 378 MHz | 133 MHz | Moderate overclock, improved performance |
+| Max OC | 504 MHz  | 166 MHz | Maximum overclock, best performance |
+
+### RP2350 without PSRAM
+
+For boards without external PSRAM. Same CPU speeds as above.
+
+### RP2040 (Limited Support)
 
 | Speed | CPU Clock | Description |
 |-------|-----------|-------------|
-| Stock | 252 MHz   | Default, stable operation |
-| Medium OC | 378 MHz | Moderate overclock, improved performance |
-| Max OC | 504 MHz  | Maximum overclock, best performance |
+| Standard | 125 MHz | Default RP2040 clock |
+| Overclocked | 252 MHz | Moderate overclock |
 
-Choose based on your hardware's overclocking capability. Most boards work reliably at 378/133 MHz.
+Note: RP2040 builds have reduced functionality due to memory constraints.
+
+### Murmulator OS (MOS2)
+
+For use with Murmulator OS, `.m1p2` and `.m2p2` files are provided. These use a special linker script and are only available for RP2350.
+
+Choose based on your hardware configuration. Most RP2350 boards with PSRAM work reliably at 378/133 MHz.
 
 ## Building
 
@@ -119,12 +138,16 @@ make -j$(nproc)
 
 | Option | Description |
 |--------|-------------|
+| `-DPICO_BOARD=pico2` | Build for RP2350 (default) |
+| `-DPICO_BOARD=pico` | Build for RP2040 (limited support) |
 | `-DBOARD_VARIANT=M1` | Use M1 GPIO layout (default) |
 | `-DBOARD_VARIANT=M2` | Use M2 GPIO layout |
+| `-DCPU_SPEED=378` | CPU clock in MHz (125, 252, 378, 504) |
+| `-DPSRAM_SPEED=133` | PSRAM clock in MHz (100, 133, 166) - omit for no PSRAM |
+| `-DMOS2=ON` | Build for Murmulator OS (m1p2/m2p2 format) |
 | `-DUSB_HID_ENABLED=ON` | Enable USB keyboard (disables USB serial) |
 | `-DPS2_KEYBOARD_ENABLED=ON` | Enable PS/2 keyboard input |
 | `-DDEBUG_LOGS_ENABLED=ON` | Enable verbose debug logging |
-| `-DCPU_SPEED=504` | CPU overclock in MHz (252, 378, 504) |
 
 Or use the build script (builds M1 by default):
 
@@ -134,19 +157,29 @@ Or use the build script (builds M1 by default):
 
 ### Release Builds
 
-To build both M1 and M2 variants with version numbering:
+To build all variants with version numbering:
 
 ```bash
 ./release.sh
 ```
 
-This creates versioned UF2 files in the `release/` directory:
-- `murmapple_m1_252_X_XX.uf2` (stock speed)
-- `murmapple_m1_378_X_XX.uf2` (medium overclock)
-- `murmapple_m1_504_X_XX.uf2` (max overclock)
-- `murmapple_m2_252_X_XX.uf2` (stock speed)
-- `murmapple_m2_378_X_XX.uf2` (medium overclock)
-- `murmapple_m2_504_X_XX.uf2` (max overclock)
+This creates versioned firmware files in the `release/` directory:
+
+**RP2350 with PSRAM (UF2):**
+- `murmapple_m1_252_100_X_XX.uf2` through `murmapple_m1_504_166_X_XX.uf2`
+- `murmapple_m2_252_100_X_XX.uf2` through `murmapple_m2_504_166_X_XX.uf2`
+
+**RP2350 without PSRAM (UF2):**
+- `murmapple_m1_252_nopsram_X_XX.uf2` through `murmapple_m1_504_nopsram_X_XX.uf2`
+- `murmapple_m2_252_nopsram_X_XX.uf2` through `murmapple_m2_504_nopsram_X_XX.uf2`
+
+**RP2350 Murmulator OS (MOS2):**
+- `murmapple_m1_252_100_X_XX.m1p2` through `murmapple_m1_504_166_X_XX.m1p2`
+- `murmapple_m2_252_100_X_XX.m2p2` through `murmapple_m2_504_166_X_XX.m2p2`
+
+**RP2040 (UF2):**
+- `murmapple_m1_125_rp2040_X_XX.uf2`, `murmapple_m1_252_rp2040_X_XX.uf2`
+- `murmapple_m2_125_rp2040_X_XX.uf2`, `murmapple_m2_252_rp2040_X_XX.uf2`
 
 ### Flashing
 
@@ -218,8 +251,16 @@ This project is based on the following open-source projects:
 - **License:** FatFs License (BSD-style)
 - **Description:** Generic FAT filesystem module for SD card access.
 
-## Author
+## Authors & Contributors
 
-Mikhail Matveev <<xtreme@rh1.tech>>
+**Mikhail Matveev** <<xtreme@rh1.tech>>
+- Original MurmApple port and core development
+- Website: [https://rh1.tech](https://rh1.tech)
 
-Website: [https://rh1.tech](https://rh1.tech)
+**DnCraptor** ([GitHub](https://github.com/DnCraptor))
+- Murmulator OS (MOS2) integration
+- RP2350 platform support
+- No-PSRAM mode for boards without external PSRAM
+- RP2040 limited support
+- Disk UI enhancements
+- Various bug fixes and improvements

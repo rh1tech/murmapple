@@ -32,7 +32,7 @@
 #endif
 
 #ifndef PICO_AUDIO_I2S_DMA_CHANNEL
-#define PICO_AUDIO_I2S_DMA_CHANNEL 6
+#define PICO_AUDIO_I2S_DMA_CHANNEL 10
 #endif
 
 // NOTE: PS/2 keyboard uses PIO0 SM0, so I2S uses SM2 on PIO1

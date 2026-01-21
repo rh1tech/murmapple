@@ -31,8 +31,8 @@ set(VIDEO_VGA ON)
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 #set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
 
-# MOS2 support (generate .m1p2 or m2p2 instead of .uf2)
-#set(MOS2 "ON")
+# MOS2 support (generate .m1p2 or m2p2 for Murmulator OS instead of .uf2)
+option(MOS2 "Build for Murmulator OS (m1p2/m2p2 format)" OFF)
 
 # CPU voltage selection based on speed
 if(CPU_SPEED GREATER_EQUAL 504)
@@ -115,35 +115,37 @@ if(USB_HID_ENABLED)
     add_subdirectory(drivers/usbhid)
 endif()
 
-# Create a library for drivers
+# Collect driver sources based on configuration
+set(DRIVER_SOURCES drivers/nespad/nespad.c)
+
 if (PSRAM_SPEED)
-    add_library(drivers
+    list(APPEND DRIVER_SOURCES
         drivers/psram_init.c
         drivers/psram_allocator.c
-    )
-    target_compile_definitions(drivers PRIVATE
-        PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
     )
 endif()
 
 if (VIDEO_HDMI)
-    add_library(drivers
-        drivers/HDMI.c
-        drivers/nespad/nespad.c
-    )
+    list(APPEND DRIVER_SOURCES drivers/HDMI.c)
 endif()
 
 if (VIDEO_VGA)
-    add_library(drivers
-        drivers/vga.c
-        drivers/nespad/nespad.c
-    )
+    list(APPEND DRIVER_SOURCES drivers/vga.c)
 endif()
+
+# Create a library for drivers
+add_library(drivers ${DRIVER_SOURCES})
 
 target_include_directories(drivers PUBLIC drivers drivers/nespad src)
 target_compile_definitions(drivers PRIVATE
     BOARD_${BOARD_VARIANT}
 )
+
+if (PSRAM_SPEED)
+    target_compile_definitions(drivers PRIVATE
+        PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
+    )
+endif()
 
 # Apple IIe Emulator sources
 add_executable(${BUILD_NAME}
@@ -181,16 +183,13 @@ if (PICO_BOARD STREQUAL "pico")
     pico_set_boot_stage2(${BUILD_NAME} slower_boot2)
     unset(MOS2)
 else()
-# RP2350 ASM-file: (required?)
-#    add_executable(${BUILD_NAME}
-#        src/mii_disk2_lss_asm.S
-#    )
-    # MOS2 support:
+    # RP2350: Use custom linker scripts
+    # MOS2 builds use memmap.mos2.ld, regular UF2 builds use memmap.ld
     if (MOS2)
         pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.mos2.ld")
-    else ()
+    else()
         pico_set_linker_script(${PROJECT_NAME} "${CMAKE_SOURCE_DIR}/memmap.ld")
-    endif ()
+    endif()
 endif()
 
 target_link_libraries(drivers pico_stdlib hardware_dma hardware_pio hardware_spi hardware_pwm)
@@ -212,7 +211,7 @@ target_compile_definitions(${BUILD_NAME} PRIVATE
     PICO_AUDIO_I2S_PIO=0
     PICO_AUDIO_I2S_STATE_MACHINE=2
     PICO_AUDIO_I2S_DMA_IRQ=1
-    PICO_AUDIO_I2S_DMA_CHANNEL=6
+    PICO_AUDIO_I2S_DMA_CHANNEL=10
     PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
     PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
     FEATURE_AUDIO_I2S=1
