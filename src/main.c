@@ -447,24 +447,52 @@ int main() {
     }
 #endif
     
-    // IMPORTANT: Set buffer and resolution BEFORE graphics_init() 
+    // IMPORTANT: Set buffer and resolution BEFORE graphics_init()
     // because DMA/IRQs start immediately and will read from the buffer
     graphics_set_res(HDMI_WIDTH, HDMI_HEIGHT);
-    
+
+    // Pre-fill framebuffer with black before HDMI starts
+    // This ensures valid data when DMA begins
+    memset(graphics_get_buffer(), 0, HDMI_WIDTH * HDMI_HEIGHT / 2);
+
     // Initialize HDMI graphics (starts DMA/IRQs)
     MII_DEBUG_PRINTF("Initializing HDMI...\n");
     graphics_init(g_out_HDMI);
-    
+
     // Initialize palette
     init_palette();
     graphics_restore_sync_colors();  // Restore HDMI sync colors after palette init
-    
+
+    // Allow HDMI signal to stabilize before drawing anything
+    // This gives the monitor time to lock onto the sync signal
+    sleep_ms(500);
+
     // Verify palette entry 15 was set
     MII_DEBUG_PRINTF("Palette initialized, verifying...\n");
     extern uint32_t conv_color[];
     uint64_t *conv_color64 = (uint64_t *)conv_color;
     MII_DEBUG_PRINTF("conv_color[15] = 0x%016llx 0x%016llx\n", conv_color64[30], conv_color64[31]);
-    
+
+#ifndef PICO_RP2040 // for RP2350 only
+    // Display start screen after HDMI has stabilized
+    MII_DEBUG_PRINTF("Displaying start screen...\n");
+    uint32_t board_num_early = 1;  // Default to M1
+#ifdef BOARD_M2
+    board_num_early = 2;
+#endif
+    mii_startscreen_info_t screen_info_early = {
+        .title = "MurmApple",
+        .subtitle = "Apple IIe Emulator",
+        .version = "v1.00",
+        .cpu_mhz = CPU_CLOCK_MHZ,
+#if PSRAM_MAX_FREQ_MHZ
+        .psram_mhz = PSRAM_MAX_FREQ_MHZ,
+#endif
+        .board_variant = board_num_early,
+    };
+    mii_startscreen_show(&screen_info_early);
+#endif
+
     // Initialize PS/2 keyboard
     MII_DEBUG_PRINTF("Initializing PS/2 keyboard...\n");
 #if ENABLE_PS2_KEYBOARD
@@ -584,31 +612,8 @@ int main() {
     mii_reset(&g_mii, true);
     MII_DEBUG_PRINTF("Reset complete, state=%d\n", g_mii.state);
     
-    // Start HDMI output
-    MII_DEBUG_PRINTF("Starting HDMI output...\n");
+    // Start HDMI output (stub - HDMI was started in graphics_init)
     startVIDEO(0);
-    MII_DEBUG_PRINTF("HDMI started\n");
-    
-    // Display start screen with system information
-    MII_DEBUG_PRINTF("Displaying start screen...\n");
-    uint32_t board_num = 1;  // Default to M1
-#ifdef BOARD_M2
-    board_num = 2;
-#endif
-
-#ifndef PICO_RP2040 // for RP2350 only
-    mii_startscreen_info_t screen_info = {
-        .title = "MurmApple",
-        .subtitle = "Apple IIe Emulator",
-        .version = "v1.00",
-        .cpu_mhz = CPU_CLOCK_MHZ,
-#if PSRAM_MAX_FREQ_MHZ
-        .psram_mhz = PSRAM_MAX_FREQ_MHZ,
-#endif
-        .board_variant = board_num,
-    };
-    mii_startscreen_show(&screen_info);
-#endif
 
     // Let ROM boot naturally
     MII_DEBUG_PRINTF("Running ROM boot sequence (1M cycles)...\n");

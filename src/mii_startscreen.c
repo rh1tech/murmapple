@@ -12,6 +12,7 @@
 #include "debug_log.h"
 #include "HDMI.h"
 #include "pico/time.h"
+#include "pico/platform.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -247,39 +248,39 @@ int mii_startscreen_show(mii_startscreen_info_t *info) {
     const int screen_h = SCREEN_HEIGHT;
     const int buffer_size = screen_w * screen_h / 2;
     MII_DEBUG_PRINTF("Start screen: screen=%dx%d\n", screen_w, screen_h);
-    
+
     // Clear screen to black
     memset(buffer, COLOR_BG, buffer_size);
-    
+
     // Window dimensions - centered dialog
     const int win_w = 200;
     const int win_h = 130;
     const int win_x = (screen_w - win_w) / 2;
     const int win_y = (screen_h - win_h) / 2;
-    
+
     // Draw window background (black)
     draw_rect(buffer, screen_w, win_x, win_y, win_w, win_h, COLOR_BG);
-    
+
     // Draw window border
     draw_border(buffer, screen_w, win_x, win_y, win_w, win_h);
-    
+
     // Draw title bar with inverted colors
     draw_header(buffer, screen_w, win_x + 1, win_y + 1, win_w - 2, info->title);
-    
+
     // Content area starts after header
     int content_y = win_y + HEADER_HEIGHT + UI_PADDING;
-    
+
     // Draw subtitle
     draw_centered_string(buffer, screen_w, content_y, info->subtitle, COLOR_TEXT);
     content_y += LINE_HEIGHT + 2;
-    
+
     // Draw version
     draw_centered_string(buffer, screen_w, content_y, info->version, COLOR_GREEN);
     content_y += LINE_HEIGHT + 8;
-    
+
     // Draw system info
     char line[48];
-    
+
     snprintf(line, sizeof(line), "CPU: %lu MHz", info->cpu_mhz);
     draw_centered_string(buffer, screen_w, content_y, line, COLOR_TEXT);
     content_y += LINE_HEIGHT;
@@ -292,22 +293,26 @@ int mii_startscreen_show(mii_startscreen_info_t *info) {
 
     snprintf(line, sizeof(line), "Board: M%d", info->board_variant);
     draw_centered_string(buffer, screen_w, content_y, line, COLOR_TEXT);
-    
+
     // Draw copyright at bottom of window
     content_y = win_y + win_h - LINE_HEIGHT * 2 - 6;
     draw_centered_string(buffer, screen_w, content_y, "By Mikhail Matveev, rh1.tech", COLOR_TEXT);
-    
+
     // Draw "Initializing..." at very bottom
     content_y = win_y + win_h - LINE_HEIGHT - 4;
     draw_centered_string(buffer, screen_w, content_y, "Initializing...", COLOR_GREEN);
     
     MII_DEBUG_PRINTF("Start screen: Rendered, waiting 3s...\n");
-    
-    // Show for 3 seconds
-    sleep_ms(3000);
-    
+
+    // Show for 3 seconds using busy-wait
+    // NOTE: sleep_ms() causes HDMI signal instability, likely due to low-power mode
+    uint32_t start_time = time_us_32();
+    while (time_us_32() - start_time < 3000000) {
+        tight_loop_contents();
+    }
+
     MII_DEBUG_PRINTF("Start screen: Complete\n");
-    
+
     return 0;
 }
 
