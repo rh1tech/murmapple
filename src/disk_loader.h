@@ -21,6 +21,7 @@ typedef enum {
     DISK_TYPE_DSK,      // .dsk, .do, .po - 140KB sector images
     DISK_TYPE_NIB,      // .nib - 232KB nibble images
     DISK_TYPE_WOZ,      // .woz - WOZ format (variable size)
+    DISK_TYPE_BDSK,     // .bdsk - binary disk dump, direct raw track nibbles with bit_count saved
     DIR_TYPE,           // W/A to use directories in the same list
 } disk_type_t;
 
@@ -45,6 +46,27 @@ typedef struct {
     bool write_back;        // Unused on RP2350 (kept for compatibility)
 } loaded_disk_t;
 
+#define BDSK_MAGIC "BDSK"
+#define BDSK_VERSION 1
+#define BDSK_TRACK_DATA_SIZE 6656
+#define BDSK_MAX_BITS (BDSK_TRACK_DATA_SIZE * 8)
+
+// Track data: packed bits, MSB first in each byte.
+// Bit 0 is MSB of data[0].
+// native for RP2040/RP2350 bit-order
+// Bits are circular: bit positions wrap at bit_count.
+typedef struct bdsk_header {
+    char     magic[4];      // "BDSK"
+    uint16_t version;       // 1
+    uint16_t tracks;        // 35
+} bdsk_header_t;
+
+typedef struct bdsk_track_desc {
+    uint32_t bit_count;     // ≤ 6656*8
+//    uint32_t byte_count;    // fixed for this version (v1): 6656 == NIBBLE_TRACK_SIZE
+// Bits beyond bit_count up to BDSK_TRACK_DATA_SIZE*8 are undefined (padding).
+} bdsk_track_desc_t;
+
 // Global state
 extern disk_entry_t* g_disk_list;
 extern int g_disk_count;
@@ -62,14 +84,10 @@ int disk_scan_directory(const char* __restrict path);
 // drive: 0 or 1 (Drive 1 or Drive 2)
 // index: index into g_disk_list
 // Returns 0 on success, -1 on error
-int disk_load_image(int drive, int index);
+int disk_load_image(int drive, int index, bool write);
 
 // Unload a disk image (clears selection)
 void disk_unload_image(int drive);
-
-// Write back any modified disk image to SD card
-// NOTE: not supported in the no-PSRAM loader; returns an error if called.
-int disk_writeback(int drive);
 
 // Get disk image type from filename extension
 disk_type_t disk_get_type(const char *filename);
@@ -83,7 +101,7 @@ struct mii_t;
 // slot: slot number where disk2 card is installed (usually 6)
 // preserve_state: if true, keeps motor/head position (for disk swap during game)
 // Returns 0 on success, -1 on error
-int disk_mount_to_emulator(int drive, struct mii_t *mii, int slot, int preserve_state);
+int disk_mount_to_emulator(int drive, struct mii_t *mii, int slot, int preserve_state, bool read_only, bool bdsk_recreate);
 
 // Eject a disk from the emulator
 // drive: 0 or 1 (Drive 1 or Drive 2)

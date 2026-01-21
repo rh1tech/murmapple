@@ -38,3 +38,13 @@ int
 mii_floppy_decode_sector(
 		uint8_t data_sector[342 + 1],
 		uint8_t data[256]);
+
+void
+mii_floppy_dsk_recover_sector(
+        uint8_t vol,
+        uint8_t track,
+        uint8_t sector,
+        uint8_t *data,                 // whole DSK track buffer (16*256 bytes)
+        const mii_floppy_track_t *src, // source descriptor
+        const uint8_t *track_data      // source bitstream (curr_track_data)
+);

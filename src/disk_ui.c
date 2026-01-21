@@ -19,6 +19,7 @@
 
 // External function to clear held key state (from main.c)
 extern void clear_held_key(void);
+bool disk_bdsk_exists2(const char *filename);
 
 // Emulator reference (for mounting disks)
 static mii_t *g_mii = NULL;
@@ -379,12 +380,24 @@ void disk_ui_show_loading(void) {
     ui_rendered = false;
 }
 
+static bool read_only = true;
+static bool bdsk_exists = false;
+static bool bdsk_recreate = false;
+
 // Handle loading complete - mount disk and perform action
 static void handle_disk_loaded(void) {
     disk_ui_hide();
     if (g_mii) {
         int preserve_state = (selected_action == 1) ? 1 : 0;  // INSERT preserves state
-        if (disk_mount_to_emulator(selected_drive, g_mii, g_disk2_slot, preserve_state) == 0) {
+        if (0 == disk_mount_to_emulator(
+                selected_drive,
+                g_mii,
+                g_disk2_slot,
+                preserve_state,
+                read_only,
+                bdsk_recreate
+            )
+        ) {
             printf("Disk UI: disk mounted successfully\n");
             
             if (selected_action == 0) {  // BOOT
@@ -507,9 +520,15 @@ bool disk_ui_handle_key(uint8_t key) {
                     } else {
                         // file -> action menu
                         ui_state = DISK_UI_SELECT_ACTION;
+                        /// read current prefereces for this drive, may be overriden later
+                        read_only = !g_loaded_disks[selected_drive].write_back;
                         selected_action = 0;
                         ui_dirty = true;
                         MII_DEBUG_PRINTF("Disk UI: selecting action for file %d\n", selected_file);
+                        int base = has_parent_dir ? 1 : 0;
+                        disk_entry_t *entry = &g_disk_list[selected_file - base];
+                        bdsk_exists = disk_bdsk_exists2( entry->filename );
+                        if (!bdsk_exists) bdsk_recreate = false;
                     }
                 }
                 handled = true;
@@ -528,7 +547,7 @@ bool disk_ui_handle_key(uint8_t key) {
                     
                     disk_ui_show_loading();
                     int base = has_parent_dir ? 1 : 0;
-                    if (disk_load_image(selected_drive, selected_file - base) == 0) {
+                    if (disk_load_image(selected_drive, selected_file - base, !read_only) == 0) {
                         handle_disk_loaded();
                     } else {
                         // Failed to load - go back to file selection
@@ -631,7 +650,23 @@ bool disk_ui_handle_key(uint8_t key) {
             }
             handled = true;
             break;
-            
+
+        case ' ':  // Space = toggle Read-Only
+            if (ui_state == DISK_UI_SELECT_ACTION) {
+                read_only = !read_only;
+                ui_dirty = true;
+                handled = true;
+            }
+            break;
+
+        case 'D':  // D = toggle bdsk_recreate
+            if (ui_state == DISK_UI_SELECT_ACTION) {
+                bdsk_recreate = !bdsk_recreate;
+                ui_dirty = true;
+                handled = true;
+            }
+            break;
+
         case '1':
             if (ui_state == DISK_UI_SELECT_DRIVE) {
                 selected_drive = 0;
@@ -747,7 +782,7 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         
         if (g_disk_count == 0) {
             draw_string(framebuffer, width, content_x, y, "No disk images found", COLOR_TEXT);
-            draw_string(framebuffer, width, content_x, y + LINE_HEIGHT, "Place .dsk/.woz/.nib files there", COLOR_TEXT);
+            draw_string(framebuffer, width, content_x, y + LINE_HEIGHT, "Place .bdsk/.dsk/.woz/.nib files there", COLOR_TEXT);
         } else {
             // Calculate visible range
             int visible = (total_items < MAX_VISIBLE) ? total_items : MAX_VISIBLE;
@@ -817,6 +852,18 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         snprintf(file_label, sizeof(file_label), "File: %.40s", g_disk_list[sel_file - base].filename);
         draw_string_truncated(framebuffer, width, content_x, y, file_label, max_chars, COLOR_TEXT);
         y += LINE_HEIGHT + 8;
+
+        // Read-only checkbox (drive state)
+        char label[32];
+        snprintf(label, sizeof(label), "[%c] Read-only [SPACE]", read_only ? 'x' : ' ');
+        draw_string(framebuffer, width, content_x, y, label, COLOR_TEXT);
+        y += LINE_HEIGHT + 4;
+
+        if (bdsk_exists) {
+            snprintf(label, sizeof(label), "[%c] Recreate .bdsk [D]", bdsk_recreate ? 'x' : ' ');
+            draw_string(framebuffer, width, content_x, y, label, COLOR_TEXT);
+            y += LINE_HEIGHT + 4;
+        }
         
         // Action options
         draw_string(framebuffer, width, content_x, y, "Select action:", COLOR_TEXT);
@@ -827,7 +874,7 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         y += LINE_HEIGHT + 2;
         
         draw_menu_item(framebuffer, width, content_x + 10, y, content_width - 20,
-                      "Insert - Swap disk (no reboot)", max_chars - 4, sel_action == 1);
+                      "Insert - Replace disk (no reboot)", max_chars - 4, sel_action == 1);
         y += LINE_HEIGHT + 2;
         
         draw_menu_item(framebuffer, width, content_x + 10, y, content_width - 20,

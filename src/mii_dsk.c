@@ -133,73 +133,78 @@ mii_floppy_decode_sector(
 /* Further recycled for MII .DSK decoding, using 10 bits sync words etc. */
 void
 mii_floppy_dsk_render_sector(
-		uint8_t vol, uint8_t track, uint8_t sector,
-		const uint8_t *data,
-		mii_floppy_track_t *dst,
-		uint8_t * track_data )
-{
-	unsigned int gap;
+        uint8_t vol,
+        uint8_t track,
+        uint8_t sector,
+        const uint8_t *data,          // 256 bytes sector data
+        mii_floppy_track_t *dst,       // destination descriptor
+        uint8_t *track_data            // destination bitstream buffer
+) {
+    unsigned int gap;
 
-//	if (track == 0 )
-//		printf("NIB: vol %d track %d sector %d pos %5d\n",
-//				vol, track, sector, dst->bit_count);
-	gap = sector == 0 ? 100 : track == 0 ? 20 : 20;
-	uint32_t pos = dst->bit_count;
-	for (uint8_t i = 0; i < gap; ++i)
-		mii_floppy_write_track_bits(dst, track_data, 0xFF << 2, 10);
-	dst->map.sector[sector].hsync = dst->bit_count - pos;
-	dst->map.sector[sector].header = dst->bit_count;
-	// Address Field
-	const uint8_t checksum = vol ^ track ^ sector;
-	mii_floppy_write_track_bits(dst, track_data, 0xd5aa96, 24);
-	mii_floppy_write_track_bits(dst, track_data, (vol >> 1) | 0xAA, 8);
-	mii_floppy_write_track_bits(dst, track_data, vol | 0xAA, 8);
-	mii_floppy_write_track_bits(dst, track_data, (track >> 1)  | 0xAA, 8);
-	mii_floppy_write_track_bits(dst, track_data, track  | 0xAA, 8);
-	mii_floppy_write_track_bits(dst, track_data, (sector >> 1)  | 0xAA, 8);
-	mii_floppy_write_track_bits(dst, track_data, sector | 0xAA, 8);
-	mii_floppy_write_track_bits(dst, track_data, (checksum >> 1) | 0xAA, 8);
-	mii_floppy_write_track_bits(dst, track_data, checksum | 0xAA, 8);
-	mii_floppy_write_track_bits(dst, track_data, 0xdeaaeb, 24);
-	pos = dst->bit_count;
-	// Gap 2 (5)
-	for (int i = 0; i < 5; ++i)
-		mii_floppy_write_track_bits(dst, track_data, 0xFF << 2, 10);
-	// total 48 bits sync, which helps keeping us byte aligned on the data
-	mii_floppy_write_track_bits(dst, track_data, 0xFF, 8);
-	dst->map.sector[sector].dsync = dst->bit_count - pos;
-	dst->map.sector[sector].data = dst->bit_count;
-//	printf("Track %2d sector %2d pos %5d %s\n", track, sector, dst->bit_count,
-//			dst->bit_count % 8 == 0 ? "" : "NOT BYTE ALIGNED");
-	// Data Field
-	mii_floppy_write_track_bits(dst, track_data, 0xd5aaad, 24);
-	uint8_t nibbles[0x158] = {};
-	const unsigned ptr2 = 0;
-	const unsigned ptr6 = 0x56;
+    // Gap before address field
+    gap = (sector == 0) ? 100 : 20;
 
-	int i2 = 0x55;
-	for (int i6 = 0x101; i6 >= 0; --i6) {
-		uint8_t val6 = data[i6 % 0x100];
-		uint8_t val2 = nibbles[ptr2 + i2];
-		val2 = (val2 << 1) | (val6 & 1); val6 >>= 1;
-		val2 = (val2 << 1) | (val6 & 1); val6 >>= 1;
-		nibbles[ptr6 + i6] = val6;
-		nibbles[ptr2 + i2] = val2;
-		if (--i2 < 0)
-			i2 = 0x55;
-	}
-	uint8_t last = 0;
-	// get a CRC for that sector before we write it
-	dst->map.sector[sector].crc = mii_floppy_crc(-1, nibbles, 342);
-	for (int i = 0; i < 342; ++i) {
-		const uint8_t val = nibbles[i];
-		mii_floppy_write_track_bits(dst, track_data, TRANS62[last ^ val], 8);
-		last = val;
-	}
-	mii_floppy_write_track_bits(dst, track_data, TRANS62[last], 8);
-	mii_floppy_write_track_bits(dst, track_data, 0xdeaaeb, 24);
-	// Gap 3
-	mii_floppy_write_track_bits(dst, track_data, 0xFF << 2, 10);
+    for (uint8_t i = 0; i < gap; ++i)
+        mii_floppy_write_track_bits(dst, track_data, 0xFF << 2, 10);
+
+    /* -------- Address Field -------- */
+    const uint8_t checksum = vol ^ track ^ sector;
+
+    mii_floppy_write_track_bits(dst, track_data, 0xD5AA96, 24);
+
+    mii_floppy_write_track_bits(dst, track_data, (vol >> 1)    | 0xAA, 8);
+    mii_floppy_write_track_bits(dst, track_data,  vol           | 0xAA, 8);
+    mii_floppy_write_track_bits(dst, track_data, (track >> 1)  | 0xAA, 8);
+    mii_floppy_write_track_bits(dst, track_data,  track         | 0xAA, 8);
+    mii_floppy_write_track_bits(dst, track_data, (sector >> 1) | 0xAA, 8);
+    mii_floppy_write_track_bits(dst, track_data,  sector        | 0xAA, 8);
+    mii_floppy_write_track_bits(dst, track_data, (checksum >> 1) | 0xAA, 8);
+    mii_floppy_write_track_bits(dst, track_data,  checksum       | 0xAA, 8);
+
+    mii_floppy_write_track_bits(dst, track_data, 0xDEAAEB, 24);
+
+    /* -------- Gap 2 -------- */
+    for (int i = 0; i < 5; ++i)
+        mii_floppy_write_track_bits(dst, track_data, 0xFF << 2, 10);
+
+    // 48 bits sync to keep byte alignment
+    mii_floppy_write_track_bits(dst, track_data, 0xFF, 8);
+
+    /* -------- Data Field -------- */
+    mii_floppy_write_track_bits(dst, track_data, 0xD5AAAD, 24);
+
+    uint8_t nibbles[0x158] = {0};
+    const unsigned ptr2 = 0;
+    const unsigned ptr6 = 0x56;
+
+    int i2 = 0x55;
+    for (int i6 = 0x101; i6 >= 0; --i6) {
+        uint8_t val6 = data[i6 & 0xFF];
+        uint8_t val2 = nibbles[ptr2 + i2];
+
+        val2 = (val2 << 1) | (val6 & 1); val6 >>= 1;
+        val2 = (val2 << 1) | (val6 & 1); val6 >>= 1;
+
+        nibbles[ptr6 + i6] = val6;
+        nibbles[ptr2 + i2] = val2;
+
+        if (--i2 < 0)
+            i2 = 0x55;
+    }
+
+    uint8_t last = 0;
+    for (int i = 0; i < 342; ++i) {
+        const uint8_t val = nibbles[i];
+        mii_floppy_write_track_bits(dst, track_data, TRANS62[last ^ val], 8);
+        last = val;
+    }
+
+    mii_floppy_write_track_bits(dst, track_data, TRANS62[last], 8);
+    mii_floppy_write_track_bits(dst, track_data, 0xDEAAEB, 24);
+
+    /* -------- Gap 3 -------- */
+    mii_floppy_write_track_bits(dst, track_data, 0xFF << 2, 10);
 }
 
 void
@@ -234,40 +239,5 @@ mii_floppy_dsk_load(
 		mii_dd_file_t *file )
 {
 // unsupported for now
-#if 0
-	const char *filename = basename(file->pathname);
-
-    const char *ext = rindex(filename, '.');
-    ext = ext ? ext+1 : "";
-	const uint8_t * secmap = DO;
-	if (!strcasecmp(ext, "PO"))  {
-		MII_DEBUG_PRINTF("%s opening %s as PO.\n", __func__, filename);
-   		secmap = PO;
-    } else {
-		MII_DEBUG_PRINTF("%s opening %s as DO.\n", __func__, filename);
-    }
-	for (int i = 0; i < 35; ++i) {
-		mii_floppy_track_t *dst = &f->tracks[i];
-		uint8_t *track_data = f->track_data[i];
-		dst->bit_count = 0;
-		dst->virgin = 0;
-		dst->has_map = 1;	// being filled by nibblize_sector
-		for (int phys_sector = 0; phys_sector < 16; phys_sector++) {
-			const uint8_t dos_sector = secmap[phys_sector];
-			uint32_t off = ((16 * i + dos_sector) * DSK_SECTOR_SIZE);
-			uint8_t *src = file->map + off;
-			mii_floppy_dsk_render_sector(VOLUME_NUMBER, i, phys_sector,
-						src, dst, track_data);
-			dst->map.sector[phys_sector].dsk_position = off;
-		}
-		if (i == 0)
-		    MII_DEBUG_PRINTF("%s: track %2d has %u bits %u bytes\n",
-			    __func__, i,
-			    (unsigned)dst->bit_count,
-			    (unsigned)(dst->bit_count >> 3));
-	}
-	// DSK is read only
-//	f->write_protected |= MII_FLOPPY_WP_RO_FORMAT;
-#endif
 	return 0;
 }
