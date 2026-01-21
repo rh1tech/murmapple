@@ -212,6 +212,8 @@ _mii_floppy_dsk_write_sector(
 		uint8_t data_sector[342 + 1] )
 {
 	(void)track_data;
+// unsupported for now
+#if 0
 	uint8_t data[256];
 
 	int errors = mii_floppy_decode_sector(data_sector, data);
@@ -223,6 +225,7 @@ _mii_floppy_dsk_write_sector(
 				__func__, track_id, sector);
 		memcpy(file->map + map->sector[sector].dsk_position, data, 256);
 	}
+#endif
 }
 
 int
@@ -230,6 +233,8 @@ mii_floppy_dsk_load(
 		mii_floppy_t *f,
 		mii_dd_file_t *file )
 {
+// unsupported for now
+#if 0
 	const char *filename = basename(file->pathname);
 
     const char *ext = rindex(filename, '.');
@@ -263,6 +268,6 @@ mii_floppy_dsk_load(
 	}
 	// DSK is read only
 //	f->write_protected |= MII_FLOPPY_WP_RO_FORMAT;
-
+#endif
 	return 0;
 }

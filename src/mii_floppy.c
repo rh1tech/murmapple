@@ -47,10 +47,12 @@ mii_floppy_crc(	//
 	return crc;
 }
 
+extern const uint8_t noize[MII_FLOPPY_MAX_TRACK_SIZE]; // mii_disk2.c
+
 void
 mii_floppy_init(
-		mii_floppy_t *f)
-{
+		mii_floppy_t *f
+) {
 	f->motor 		= 0;
 	f->stepper 		= 0;
 	// see spec for this.. 32 is the default for 4us.
@@ -65,26 +67,10 @@ mii_floppy_init(
 		4: 1   5: 1   6:35   7: 2
 		8: 2   9: 2  10:35  11: 3
 	*/
-	for (int i = 0; i < (int)sizeof(f->track_id); i++)
+	for (int i = 0; i < (int)sizeof(f->track_id); ++i) {
 		f->track_id[i] = ((i + 1) % 4) == 3 ?
 								MII_FLOPPY_NOISE_TRACK : ((i + 2) / 4);
-	/* generate a buffer with about 30% one bits */
-	uint8_t *random = f->track_data[MII_FLOPPY_NOISE_TRACK];
-	memset(random, 0, 256);
-	uint32_t bits = 256 * 8;
-	uint32_t ones = bits * 0.3; // 30% ones
-	// set 'ones' random bits in that random track
-	while (ones) {
-		uint32_t bit = rand() % bits;
-		if (random[bit >> 3] & (1 << (bit & 7)))
-			continue;
-		random[bit >> 3] |= (1 << (bit & 7));
-		ones--;
 	}
-	// copy all that random stuff across the rest of the 'track'
-	int rbi = 0;
-	for (int bi = 256; bi < MII_FLOPPY_MAX_TRACK_SIZE; bi++)
-		random[bi] = random[rbi++ % 256];
 	// important, the +1 means we initialize the random track too
 	for (int i = 0; i < MII_FLOPPY_TRACK_COUNT + 1; i++) {
 		f->tracks[i].dirty = 0;
@@ -93,17 +79,9 @@ mii_floppy_init(
 		// apparent speed of the disk, according to disk utilities. This value
 		// gives 299-300 RPM, which is the correct speed for a 5.25" floppy.
 		f->tracks[i].bit_count = 6400 * 8;
-		// fill the whole array up to the end..
-		uint8_t *track = f->track_data[i];
-		if (i != MII_FLOPPY_NOISE_TRACK) {
-#if 0
-			memset(track, 0, MII_FLOPPY_MAX_TRACK_SIZE);
-#else
-			for (int bi = 0; bi < MII_FLOPPY_MAX_TRACK_SIZE; bi++)
-				track[bi] = random[rbi++ % 256];
-#endif
-		}
 	}
+	// fill the whole array up to the end..
+	memcpy(f->curr_track_data, noize, MII_FLOPPY_MAX_TRACK_SIZE);
 }
 
 void
@@ -332,7 +310,7 @@ mii_floppy_map_track(
 		uint8_t flags )
 {
 	mii_floppy_track_t * src = &f->tracks[track_id];
-	uint8_t * track_data = f->track_data[track_id];
+	uint8_t * track_data = f->curr_track_data;
 
 	uint16_t hmap = 0, dmap = 0;
 	uint32_t pos = 0;
@@ -479,7 +457,7 @@ mii_floppy_resync_track(
 		return;
 	}
 	mii_floppy_track_t * src = &f->tracks[track_id];
-	uint8_t * track_data = f->track_data[track_id];
+	uint8_t * track_data = f->curr_track_data;
 
 	if (flags & 1)
 		printf("%s: track %2d resync from bit %5d/%5d\n",
@@ -513,7 +491,7 @@ mii_floppy_write_track(
 		mii_floppy_write_sector_cb cb )
 {
 	mii_floppy_track_t *track = &f->tracks[track_id];
-	uint8_t *track_data = f->track_data[track_id];
+	uint8_t *track_data = f->curr_track_data;
 
 	if (!track->has_map) {
 		printf("%s: track %d has no map\n", __func__, track_id);
@@ -557,6 +535,8 @@ mii_floppy_update_tracks(
 		mii_floppy_t *f,
 		mii_dd_file_t *file )
 {
+	return -1;
+	#if 0
 	if (f->write_protected & MII_FLOPPY_WP_RO_FORMAT)
 		return -1;
 	if (f->write_protected & MII_FLOPPY_WP_RO_FILE)
@@ -588,6 +568,7 @@ mii_floppy_update_tracks(
 	}
 	f->seed_saved = f->seed_dirty;
 	return 0;
+	#endif
 }
 
 int

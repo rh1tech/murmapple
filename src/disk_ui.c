@@ -19,7 +19,7 @@ extern void clear_held_key(void);
 
 // Emulator reference (for mounting disks)
 static mii_t *g_mii = NULL;
-static int g_disk2_slot = 6;  // Default slot for Disk II
+int g_disk2_slot = 6;  // Default slot for Disk II
 
 // UI state - volatile to prevent race conditions between cores
 static volatile disk_ui_state_t ui_state = DISK_UI_HIDDEN;
@@ -334,10 +334,10 @@ static void handle_disk_loaded(void) {
     if (g_mii) {
         int preserve_state = (selected_action == 1) ? 1 : 0;  // INSERT preserves state
         if (disk_mount_to_emulator(selected_drive, g_mii, g_disk2_slot, preserve_state) == 0) {
-            MII_DEBUG_PRINTF("Disk UI: disk mounted successfully\n");
+            printf("Disk UI: disk mounted successfully\n");
             
             if (selected_action == 0) {  // BOOT
-                MII_DEBUG_PRINTF("Disk UI: resetting CPU for disk boot\n");
+                printf("Disk UI: resetting CPU for disk boot\n");
                 mii_reset(g_mii, true);
                 
                 mii_bank_t *sw_bank = &g_mii->bank[MII_BANK_SW];
@@ -347,9 +347,9 @@ static void handle_disk_loaded(void) {
                 
                 uint8_t sw_byte = 0;
                 mii_mem_access(g_mii, SWINTCXROMOFF, &sw_byte, true, true);
-                MII_DEBUG_PRINTF("Disk UI: CPU reset complete\n");
+                printf("Disk UI: CPU reset complete\n");
             } else {  // INSERT
-                MII_DEBUG_PRINTF("Disk UI: disk inserted (no reset)\n");
+                printf("Disk UI: disk inserted (no reset)\n");
                 
                 mii_bank_t *sw_bank = &g_mii->bank[MII_BANK_SW];
                 mii_bank_poke(sw_bank, SWKBD, 0);
