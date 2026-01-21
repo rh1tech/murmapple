@@ -205,6 +205,7 @@ void read_vram_block(vram_t* __restrict vram, const uint8_t vpage, const uint8_t
     gpio_put(PICO_DEFAULT_LED_PIN, false);
 }
 
+#if !PICO_RP2350
 uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16) {
     const register uint8_t vpage = addr16 >> SHIFT_AS_DIV; // page idx in Aplle II space
 	register vram_page_t* desc = &vram->v_desc[vpage];
@@ -232,6 +233,7 @@ uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16) {
 	read_vram_block(vram, vpage, lba_page);
 	return lba_page;
 }
+#endif
 
 void init_ram_pages_for(vram_t* v, uint8_t* raw, uint32_t raw_size) {
 	memset(raw, 0, raw_size);

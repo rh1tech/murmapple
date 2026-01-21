@@ -380,6 +380,8 @@ static void PWM_init_pin(uint8_t pinN, uint16_t max_lvl) {
     pwm_init(pwm_gpio_to_slice_num(pinN), &config, true);
 }
 
+void draw_string(uint8_t *fb, int fb_width, int x, int y, const char *str, uint8_t color);
+
 int main() {
     // Overclock support: For speeds > 252 MHz, increase voltage first
 #if CPU_CLOCK_MHZ > 252
@@ -875,6 +877,10 @@ int main() {
             MII_DEBUG_PRINTF("=== DISK UI CLOSED - MONITORING ===\n");
         }
         disk_ui_was_visible = disk_ui_now;
+
+        static uint32_t effective_khz = 1023;
+        // Target is 1.023 MHz = 1023 kHz
+        uint32_t percent_speed = (effective_khz * 100) / 1023;
         
         // Run CPU for one frame worth of cycles.
         // VBL timing is now handled by mii_video_vbl_timer_cb which toggles
@@ -902,6 +908,9 @@ int main() {
             }
             mii_run_cycles(&g_mii, cycles_per_frame);
             mii_video_scale_to_hdmi(&g_mii.video, graphics_get_buffer());
+            char tmp[32];
+            snprintf(tmp, sizeof(tmp), "CPU %d kHz %d%%", effective_khz, percent_speed);
+            draw_string(graphics_get_buffer(), 320, 0, 8, tmp, 15); // COLOR_TEXT
         } else {
             disk_ui_render(graphics_get_buffer(), HDMI_WIDTH, HDMI_HEIGHT);
         }
@@ -926,6 +935,12 @@ int main() {
         if (elapsed < target_frame_us) {
             sleep_us((uint64_t)(target_frame_us - elapsed));
         }
+
+        uint32_t elapsed_us = time_us_32() - metrics_start_us;
+        // Calculate effective MHz
+        // cycles_run in 5 seconds -> cycles/sec -> MHz
+        uint32_t cycles_per_sec = (uint32_t)((uint64_t)total_cycles_run * 1000000ULL / elapsed_us);
+        effective_khz = cycles_per_sec / 1000;
         
         frame_count++;
 
@@ -956,25 +971,18 @@ int main() {
             last_mode_key = mode_key;
         }
         
-         // Print detailed performance metrics every 300 frames (5 seconds)
+        // Print detailed performance metrics every 300 frames (5 seconds)
     #if 0
          if ((frame_count % 300) == 0) {
-             uint32_t elapsed_us = time_us_32() - metrics_start_us;
              uint32_t avg_frame_us = total_emu_time / 300;
              uint32_t avg_cpu_us = total_cpu_time / 300;
              uint32_t avg_input_us = total_input_time / 300;
              uint32_t avg_other_us = avg_frame_us - avg_cpu_us - avg_input_us;
 
-             // Calculate effective MHz
-             // cycles_run in 5 seconds -> cycles/sec -> MHz
-             uint32_t cycles_per_sec = (uint32_t)((uint64_t)total_cycles_run * 1000000ULL / elapsed_us);
-             uint32_t effective_khz = cycles_per_sec / 1000;
 
              // Calculate cycles per microsecond of CPU time (efficiency)
              uint32_t cycles_per_cpu_us = total_cpu_time > 0 ? total_cycles_run / total_cpu_time : 0;
 
-             // Target is 1.023 MHz = 1023 kHz
-             uint32_t percent_speed = (effective_khz * 100) / 1023;
 
             MII_DEBUG_PRINTF("\n=== PERF Frame %lu (%.1fs) ===\n",
                 frame_count, (float)elapsed_us / 1000000.0f);

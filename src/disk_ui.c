@@ -200,7 +200,7 @@ static void draw_char(uint8_t *fb, int fb_width, int x, int y, char c, uint8_t c
 }
 
 // Draw a string
-static void draw_string(uint8_t *fb, int fb_width, int x, int y, const char *str, uint8_t color) {
+void draw_string(uint8_t *fb, int fb_width, int x, int y, const char *str, uint8_t color) {
     while (*str) {
         draw_char(fb, fb_width, x, y, *str, color);
         x += CHAR_WIDTH;
