@@ -54,7 +54,6 @@ typedef struct {
 static cpu_frame_stat_t cpu_stat[CPU_STAT_WINDOW];
 static uint8_t cpu_stat_pos = 0;
 static uint8_t cpu_stat_count = 0;
-uint32_t debug_keycode = 0;
 
 static void cpu_calc_speed(
         uint32_t *out_khz,
@@ -992,7 +991,7 @@ int main() {
                 uint32_t khz, percent;
                 cpu_calc_speed(&khz, &percent);
                 char tmp[32];
-                snprintf(tmp, sizeof(tmp), "CPU %4u kHz %3u%% %xh", khz, percent, debug_keycode);
+                snprintf(tmp, sizeof(tmp), "CPU %4u kHz %3u%%", khz, percent);
         		memset(graphics_get_buffer(), 0, 320 * 8 / 2);
                 draw_string(graphics_get_buffer(), 320, 0, 8, tmp, 15);
             }

@@ -166,17 +166,13 @@ int usbhid_wrapper_get_key(int *pressed, unsigned char *key) {
         }
 
         switch (hid_keycode) {
-            case HID_KEY_ARROW_UP:
             case HID_KEY_KEYPAD_8: if (down) numpad_state |= DPAD_UP;    else numpad_state &= ~DPAD_UP; break;
 
-            case HID_KEY_ARROW_DOWN:
             case HID_KEY_KEYPAD_2:
             case HID_KEY_KEYPAD_5: if (down) numpad_state |= DPAD_DOWN;  else numpad_state &= ~DPAD_DOWN; break;
 
-            case HID_KEY_ARROW_LEFT:
             case HID_KEY_KEYPAD_4: if (down) numpad_state |= DPAD_LEFT;  else numpad_state &= ~DPAD_LEFT; break;
             
-            case HID_KEY_ARROW_RIGHT:
             case HID_KEY_KEYPAD_6: if (down) numpad_state |= DPAD_RIGHT; else numpad_state &= ~DPAD_RIGHT; break;
 
             case HID_KEY_KEYPAD_7: if (down) numpad_state |= (DPAD_UP   | DPAD_LEFT);  else numpad_state &= ~(DPAD_UP   | DPAD_LEFT); break;
@@ -207,7 +203,6 @@ int usbhid_wrapper_get_key(int *pressed, unsigned char *key) {
             return 1;
         }
     }
-debug_keycode = numpad_state;
     return 0;
 }
 

@@ -65,6 +65,4 @@ public:
   void __not_in_flash_func(tick)();
 };
 
-extern "C" uint32_t debug_keycode;
-
 #endif

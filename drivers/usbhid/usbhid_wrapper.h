@@ -86,8 +86,6 @@ static inline uint32_t usbhid_wrapper_get_gamepad_state(void) { return 0; }
 
 #endif // USB_HID_ENABLED
 
-extern uint32_t debug_keycode;
-
 #ifdef __cplusplus
 }
 #endif
