@@ -6,8 +6,6 @@
  * 
  * Developed by Mikhail Matveev, rh1.tech
  */
-#ifndef PICO_RP2040 // for RP2350 only
-
 #include "mii_startscreen.h"
 #include "debug_log.h"
 #include "HDMI.h"
@@ -310,5 +308,3 @@ int mii_startscreen_show(mii_startscreen_info_t *info) {
     
     return 0;
 }
-
-#endif

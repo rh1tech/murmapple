@@ -654,7 +654,6 @@ int main() {
     board_num = 2;
 #endif
 
-#ifndef PICO_RP2040 // for RP2350 only
     mii_startscreen_info_t screen_info = {
         .title = "MurmApple",
         .subtitle = "Apple IIe Emulator",
@@ -666,7 +665,6 @@ int main() {
         .board_variant = board_num,
     };
     mii_startscreen_show(&screen_info);
-#endif
 
     // Let ROM boot naturally
     MII_DEBUG_PRINTF("Running ROM boot sequence (1M cycles)...\n");
@@ -720,9 +718,6 @@ int main() {
     uint32_t boot_time_us = time_us_32();  // Track real wall-clock time
     uint32_t next_frame_deadline = boot_time_us;
 
-    // Performance metrics
-//    uint32_t total_input_time = 0;    // Time spent polling input
-
     // Debug state (printed from core0 to avoid disturbing HDMI DMA on core1)
     uint32_t last_mode_key = 0xffffffffu;
     uint32_t last_fb_hash = 0;
@@ -735,7 +730,6 @@ int main() {
         bool cpu_ran = false;
 
         // Poll keyboard at start of frame
-//        uint32_t input_start = time_us_32();
 #if ENABLE_PS2_KEYBOARD
         ps2kbd_tick();
 #endif
@@ -958,8 +952,6 @@ int main() {
                 }
                 debug_frames--;
             }
-//            uint32_t input_end = time_us_32();
-//            total_input_time += (input_end - input_start);
             cycles_before = g_mii.cpu.total_cycle;
 
             mii_run_cycles(&g_mii, cycles_per_frame);
