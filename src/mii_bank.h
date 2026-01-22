@@ -100,7 +100,7 @@ typedef struct mii_bank_t {
 
 void init_ram_pages_for(vram_t* v, uint8_t* raw, uint32_t raw_size);
 
-#if PICO_RP2350
+#if defined(PICO_RP2350) || (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL == MAX_PAGES_PER_POOL))
 inline static
 uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16) {
     // all pages in memory, not required to calculate something
@@ -117,7 +117,7 @@ void pin_ram_pages_for(
         const uint32_t start_addr,
         const uint16_t len_bytes)
 {
-#if PICO_RP2350
+#if defined(PICO_RP2350) || (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL == MAX_PAGES_PER_POOL))
     // all pages in memory, not required to pin something
 	(v);
 	(start_addr);

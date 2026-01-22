@@ -205,7 +205,7 @@ void read_vram_block(vram_t* __restrict vram, const uint8_t vpage, const uint8_t
     gpio_put(PICO_DEFAULT_LED_PIN, false);
 }
 
-#if !PICO_RP2350
+#if defined(PICO_RP2040) && (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL != MAX_PAGES_PER_POOL))
 uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16) {
     const register uint8_t vpage = addr16 >> SHIFT_AS_DIV; // page idx in Aplle II space
 	register vram_page_t* desc = &vram->v_desc[vpage];
