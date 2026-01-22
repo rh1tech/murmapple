@@ -54,7 +54,7 @@ enum graphics_mode_t {
 uint8_t* graphics_get_buffer();
 void graphics_init(g_out g_out);
 // Returns a monotonically increasing frame counter (incremented on vsync).
-uint32_t hdmi_get_frame_count(void);
+uint32_t get_frame_count(void);
 // Returns the HDMI DMA IRQ count (for detecting stalls).
 uint32_t hdmi_get_irq_count(void);
 // Check if HDMI DMA is still running and restart if stalled.

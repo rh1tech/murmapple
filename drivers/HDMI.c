@@ -27,7 +27,7 @@ int graphics_buffer_shift_y = 0;
 
 static volatile uint32_t graphics_frame_count = 0;
 
-uint32_t hdmi_get_frame_count(void) {
+uint32_t get_frame_count(void) {
     return graphics_frame_count;
 }
 

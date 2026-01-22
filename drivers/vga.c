@@ -67,6 +67,10 @@ static uint16_t* txt_palette_fast = NULL;
 static volatile uint32_t graphics_frame_count = 0;
 static uint8_t graphics_buffer[SCREEN_WIDTH * SCREEN_HEIGHT / 2] __aligned(4096) = { 0 };
 
+uint32_t get_frame_count(void) {
+    return graphics_frame_count;
+}
+
 uint8_t* graphics_get_buffer() {
     return graphics_buffer;
 }

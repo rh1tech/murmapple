@@ -336,9 +336,21 @@ void clear_held_key(void) {
 // Flag to indicate emulator is ready
 static volatile bool g_emulator_ready = false;
 
-#if 0
+static __not_in_flash() void video_core_iteration(void) {
+    mii_video_scale_to_hdmi(&g_mii.video, graphics_get_buffer());
+    if (ps2kbd_is_show_speed()) {
+        uint32_t khz, percent;
+        cpu_calc_speed(&khz, &percent);
+        char tmp[32];
+        snprintf(tmp, sizeof(tmp), "CPU %4u kHz %3u%%", khz, percent);
+        memset(graphics_get_buffer(), 0, 320 * 8 / 2);
+        draw_string(graphics_get_buffer(), 320, 0, 8, tmp, 15);
+    }
+}
+
+#if defined(PICO_RP2350) || (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL == MAX_PAGES_PER_POOL))
 // Core 1 - Video rendering loop
-static void core1_main(void) {
+static __not_in_flash() void core1_main(void) {
     MII_DEBUG_PRINTF("Core 1: Waiting for emulator ready...\n");
     
     // Wait for Core 0 to finish initialization
@@ -349,33 +361,23 @@ static void core1_main(void) {
     
     MII_DEBUG_PRINTF("Core 1: Starting video rendering\n");
     
-   // uint32_t last_frame = hdmi_get_frame_count();
+    uint32_t last_frame = get_frame_count();
     
     while (1) {
         sleep_ms(16);
         if (!disk_ui_is_visible()) {
-            mii_video_scale_to_hdmi(&g_mii.video, graphics_get_buffer());
-
-            // Calculate effective MHz
-            // cycles_run in 5 seconds -> cycles/sec -> MHz
-            uint32_t cycles_per_sec = (uint32_t)((uint64_t)total_cycles_run * 1000000ULL / adjusted_frame_end);
-            uint32_t effective_khz = cycles_per_sec / 1000;
-            // Target is 1.023 MHz = 1023 kHz
-            uint32_t percent_speed = (effective_khz * 100) / 1023;
-            char tmp[32];
-            snprintf(tmp, sizeof(tmp), "CPU %d kHz %d%%", effective_khz, percent_speed);
-            draw_string(graphics_get_buffer(), 320, 0, 8, tmp, 15); // COLOR_TEXT
+            video_core_iteration();
         }
 
         // Wait until the swap has actually happened (vsync tick), then rotate buffers.
         // This avoids writing into the buffer currently being scanned out.
-    //    uint32_t f;
-    //    do {
-    //        f = hdmi_get_frame_count();
-    //        if (f != last_frame) break;
-    //        sleep_ms(1);
-    //    } while (1);
-    //    last_frame = f;
+        uint32_t f;
+        do {
+            f = get_frame_count();
+            if (f != last_frame) break;
+            sleep_ms(1);
+        } while (1);
+        last_frame = f;
     }
 }
 #endif
@@ -688,7 +690,7 @@ int main() {
     g_emulator_ready = true;
     
     // Launch video rendering on core 1
-#if 0
+#if defined(PICO_RP2350) || (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL == MAX_PAGES_PER_POOL))
     MII_DEBUG_PRINTF("Starting video rendering on core 1...\n");
     multicore_launch_core1(core1_main);
     MII_DEBUG_PRINTF("Core 1 launched\n");
@@ -985,16 +987,10 @@ int main() {
 
             cycles_after = g_mii.cpu.total_cycle;
             cpu_ran = true;
-#if 1
-            mii_video_scale_to_hdmi(&g_mii.video, graphics_get_buffer());
-            if (ps2kbd_is_show_speed()) {
-                uint32_t khz, percent;
-                cpu_calc_speed(&khz, &percent);
-                char tmp[32];
-                snprintf(tmp, sizeof(tmp), "CPU %4u kHz %3u%%", khz, percent);
-        		memset(graphics_get_buffer(), 0, 320 * 8 / 2);
-                draw_string(graphics_get_buffer(), 320, 0, 8, tmp, 15);
-            }
+#if defined(PICO_RP2350) || (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL == MAX_PAGES_PER_POOL))
+            /// video_core_iteration(); on core1
+#else
+            video_core_iteration();
 #endif
 
     #ifdef FEATURE_AUDIO_I2S
