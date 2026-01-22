@@ -16,11 +16,13 @@ cmake_minimum_required(VERSION 3.13)
 
 set(BUILD_NAME "murmapple")
 
+set(BUILD_VERSION "RC16")
+
 # Set board to Pico 2 (RP2350)
 set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 # Board configuration variant (M1, M2)
-set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
+set(BOARD_VARIANT "M2" CACHE STRING "Board variant: M1 or M2")
 
 # CPU overclock configuration (252, 378, 504 MHz)
 set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
@@ -83,6 +85,31 @@ endif()
 
 set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
+
+IF(BOARD_VARIANT STREQUAL "M2")
+    SET(BUILD_NAME "m2p2-${BUILD_NAME}")
+ELSE()
+    SET(BUILD_NAME "m1p2-${BUILD_NAME}")
+endif ()
+
+IF(VIDEO_VGA)
+    SET(BUILD_NAME "${BUILD_NAME}-VGA")
+endif ()
+IF(VIDEO_HDMI)
+    SET(BUILD_NAME "${BUILD_NAME}-HDMI")
+endif ()
+
+SET(BUILD_NAME "${BUILD_NAME}-${CPU_SPEED}MHz")
+
+if (PSRAM_SPEED)
+    SET(BUILD_NAME "${BUILD_NAME}-P${PSRAM_SPEED}")
+endif ()
+
+if (PWM_SOUND)
+    SET(BUILD_NAME "${BUILD_NAME}-PWM-${BUILD_VERSION}")
+else()
+    SET(BUILD_NAME "${BUILD_NAME}-I2S-${BUILD_VERSION}")
+endif ()
 
 if (MOS2)
     IF(BOARD_VARIANT STREQUAL "M2")
