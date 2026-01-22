@@ -54,6 +54,7 @@ typedef struct {
 static cpu_frame_stat_t cpu_stat[CPU_STAT_WINDOW];
 static uint8_t cpu_stat_pos = 0;
 static uint8_t cpu_stat_count = 0;
+uint32_t debug_keycode = 0;
 
 static void cpu_calc_speed(
         uint32_t *out_khz,

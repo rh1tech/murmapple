@@ -17,7 +17,7 @@ cmake_minimum_required(VERSION 3.13)
 set(BUILD_NAME "murmapple")
 
 # Set board to Pico 2 (RP2350)
-set(PICO_BOARD pico CACHE STRING "Board type")
+set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 # Board configuration variant (M1, M2)
 set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
@@ -31,7 +31,7 @@ set(VIDEO_VGA ON)
 set(PWM_SOUND ON)
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
-set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
+set(PSRAM_SPEED "84" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
 
 # MOS2 support (generate .m1p2 or m2p2 for Murmulator OS instead of .uf2)
 option(MOS2 "Build for Murmulator OS (m1p2/m2p2 format)" OFF)
