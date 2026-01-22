@@ -17,7 +17,8 @@ static std::queue<KeyEvent> event_queue;
 
 static bool turbo_latched = false;   // Scroll Lock
 static bool turbo_momentary = false; // F12 held
-static bool show_speed = false; // F12 held
+static bool show_speed = false; // F9 held
+static uint8_t numpad_state = 0;
 
 bool __not_in_flash() ps2kbd_is_turbo(void) {
     return turbo_latched || turbo_momentary;
@@ -25,6 +26,10 @@ bool __not_in_flash() ps2kbd_is_turbo(void) {
 
 bool __not_in_flash() ps2kbd_is_show_speed(void) {
     return show_speed;
+}
+
+uint8_t __not_in_flash() ps2kbd_get_numpad_state(void) {
+    return numpad_state;
 }
 
 // HID to Apple II ASCII mapping
@@ -104,6 +109,8 @@ static uint8_t arrow_key_state = 0;
 // Track if Delete key is currently pressed (for Ctrl+Alt+Delete combo)
 static bool delete_key_pressed = false;
 
+#include "../nespad/nespad.h"
+
 static void key_handler(hid_keyboard_report_t *curr, hid_keyboard_report_t *prev) {
     // Store current modifiers for use in key mapping
     current_modifiers = curr->modifier;
@@ -111,14 +118,42 @@ static void key_handler(hid_keyboard_report_t *curr, hid_keyboard_report_t *prev
     // Update arrow key state and Delete key from current report
     arrow_key_state = 0;
     delete_key_pressed = false;
+    uint8_t ns = 0;
     for (int i = 0; i < 6; i++) {
-        if (curr->keycode[i] == 0x4F) arrow_key_state |= 0x01;  // Right
-        if (curr->keycode[i] == 0x50) arrow_key_state |= 0x02;  // Left
-        if (curr->keycode[i] == 0x51) arrow_key_state |= 0x04;  // Down
-        if (curr->keycode[i] == 0x52) arrow_key_state |= 0x08;  // Up
-        if (curr->keycode[i] == 0x4C) delete_key_pressed = true;  // Delete
+        uint8_t kc = curr->keycode[i];
+        if (kc == 0x4F) arrow_key_state |= 0x01;  // Right
+        if (kc == 0x50) arrow_key_state |= 0x02;  // Left
+        if (kc == 0x51) arrow_key_state |= 0x04;  // Down
+        if (kc == 0x52) arrow_key_state |= 0x08;  // Up
+        if (kc == 0x4C) delete_key_pressed = true;  // Delete
+        switch (kc) {
+            case HID_KEY_ARROW_RIGHT: ns |= DPAD_RIGHT; break;
+            case HID_KEY_ARROW_LEFT: ns |= DPAD_LEFT; break;
+            case HID_KEY_ARROW_DOWN: ns |= DPAD_DOWN; break;
+            case HID_KEY_ARROW_UP: ns |= DPAD_UP; break;
+            case HID_KEY_CONTROL_LEFT: ns |= DPAD_A; break;
+            case HID_KEY_CONTROL_RIGHT: ns |= DPAD_A; break;
+            case HID_KEY_ALT_LEFT: ns |= DPAD_B; break;
+            case HID_KEY_ALT_RIGHT: ns |= DPAD_B; break;
+            case HID_KEY_INSERT:      ns |= DPAD_START;  break;
+            case HID_KEY_DELETE:      ns |= DPAD_SELECT; break;
+
+            case 0x5E: ns |= DPAD_RIGHT; break; // KP 6 → RIGHT
+            case 0x5C: ns |= DPAD_LEFT; break; // KP 4 → LEFT
+            case 0x5A: ns |= DPAD_DOWN; break; // KP 2 → DOWN
+            case 0x60: ns |= DPAD_UP; break; // KP 8 → UP
+            case 0x62: ns |= DPAD_START;  break; // KP 0 / Ins
+            case 0x63: ns |= DPAD_SELECT; break; // KP . / Del
+        }
     }
-    
+    if (curr->modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL)) {
+        ns |= DPAD_A;
+    }
+    if (curr->modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)) {
+        ns |= DPAD_B;
+    }
+    numpad_state = ns;
+
     // Check for key presses (in curr but not in prev)
     for (int i = 0; i < 6; i++) {
         if (curr->keycode[i] != 0) {

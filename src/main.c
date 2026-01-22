@@ -869,12 +869,13 @@ int main() {
             uint8_t mods = 0;
 #if ENABLE_PS2_KEYBOARD
             mods |= ps2kbd_get_modifiers();
+            combined_gamepad_state |= ps2kbd_get_numpad_state();
 #endif
 #ifdef USB_HID_ENABLED
             mods |= usbhid_wrapper_get_modifiers();
 #endif
-            uint8_t btn0 = (combined_gamepad_state & (DPAD_A | DPAD_B)) || (mods & KEYBOARD_MODIFIER_LEFTALT) ? 0x80 : 0x00;
-            uint8_t btn1 = (combined_gamepad_state & (DPAD_A | DPAD_B)) || (mods & KEYBOARD_MODIFIER_RIGHTALT) ? 0x80 : 0x00;
+            uint8_t btn0 = (combined_gamepad_state & DPAD_A) ? 0x80 : 0x00;
+            uint8_t btn1 = (combined_gamepad_state & DPAD_B) ? 0x80 : 0x00;
             uint8_t btn2 = (combined_gamepad_state & DPAD_START) ? 0x80 : 0x00;
             mii_bank_poke(sw, 0xc061, btn0);
             mii_bank_poke(sw, 0xc062, btn1);
@@ -885,30 +886,48 @@ int main() {
             // instead of snapping to extremes, as these games rely on analog control.
             // Paddle 0 = X axis (left/right): 0=left, 127=center, 255=right
             // Paddle 1 = Y axis (up/down): 0=up, 255=down
-            static uint8_t joy_x = 127;  // Persistent X position
-            static uint8_t joy_y = 127;  // Persistent Y position
+            #define PADDLE_CENTER 127
+            static uint8_t joy_x = PADDLE_CENTER;  // Persistent X position
+            static uint8_t joy_y = PADDLE_CENTER;  // Persistent Y position
             
             // NES D-pad controls - gradual movement for paddle games
             // Speed: ~4 per frame = full range in ~32 frames (~0.5 sec)
             #define PADDLE_SPEED 4
             
+            /* X axis */
             if (combined_gamepad_state & DPAD_LEFT) {
-                if (joy_x > PADDLE_SPEED) joy_x -= PADDLE_SPEED;
-                else joy_x = 0;
+                if (joy_x > PADDLE_SPEED)
+                    joy_x -= PADDLE_SPEED;
+                else
+                    joy_x = 0;
             }
-            if (combined_gamepad_state & DPAD_RIGHT) {
-                if (joy_x < 255 - PADDLE_SPEED) joy_x += PADDLE_SPEED;
-                else joy_x = 255;
+            else if (combined_gamepad_state & DPAD_RIGHT) {
+                if (joy_x < 255 - PADDLE_SPEED)
+                    joy_x += PADDLE_SPEED;
+                else
+                    joy_x = 255;
             }
+            else {
+                joy_x = PADDLE_CENTER;
+            }
+
+            /* Y axis */
             if (combined_gamepad_state & DPAD_UP) {
-                if (joy_y > PADDLE_SPEED) joy_y -= PADDLE_SPEED;
-                else joy_y = 0;
+                if (joy_y > PADDLE_SPEED)
+                    joy_y -= PADDLE_SPEED;
+                else
+                    joy_y = 0;
             }
-            if (combined_gamepad_state & DPAD_DOWN) {
-                if (joy_y < 255 - PADDLE_SPEED) joy_y += PADDLE_SPEED;
-                else joy_y = 255;
+            else if (combined_gamepad_state & DPAD_DOWN) {
+                if (joy_y < 255 - PADDLE_SPEED)
+                    joy_y += PADDLE_SPEED;
+                else
+                    joy_y = 255;
             }
-            
+            else {
+                joy_y = PADDLE_CENTER;
+            }            
+
             g_mii.analog.v[0].value = joy_x;
             g_mii.analog.v[1].value = joy_y;
             

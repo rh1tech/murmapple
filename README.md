@@ -217,6 +217,16 @@ picotool load -f build/murmapple.uf2
 - F12: unlock CPU speed (while pressed, for short fastups)
 - ScrLock: unlock CPU speed toggle
 
+### Keyboard to joystick mapping
+- KP 6 → RIGHT
+- KP 4 → LEFT
+- KP 2 → DOWN
+- KP 8 → UP
+- Ins → START
+- Del → SELECT
+- Any Control → A
+- Any Alt → B
+
 ### Gamepad (NES/USB)
 - A Button: Left paddle button (Open Apple)
 - B Button: Right paddle button (Closed Apple)
