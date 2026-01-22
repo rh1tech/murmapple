@@ -212,7 +212,10 @@ picotool load -f build/murmapple.uf2
 - Ctrl+Alt+Delete: Warm reset
 - Open Apple (Left Alt/Left Windows): Left paddle button
 - Closed Apple (Right Alt/Right Windows): Right paddle button
+- F9: show CPU spped (kHz + %%)
 - F11: open Disk UI
+- F12: unlock CPU speed (while pressed, for short fastups)
+- ScrLock: unlock CPU speed toggle
 
 ### Gamepad (NES/USB)
 - A Button: Left paddle button (Open Apple)

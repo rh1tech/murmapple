@@ -15,6 +15,18 @@ struct KeyEvent {
 
 static std::queue<KeyEvent> event_queue;
 
+static bool turbo_latched = false;   // Scroll Lock
+static bool turbo_momentary = false; // F12 held
+static bool show_speed = false; // F12 held
+
+bool __not_in_flash() ps2kbd_is_turbo(void) {
+    return turbo_latched || turbo_momentary;
+}
+
+bool __not_in_flash() ps2kbd_is_show_speed(void) {
+    return show_speed;
+}
+
 // HID to Apple II ASCII mapping
 // Returns the Apple II ASCII character for a given HID keycode
 // Special return values:
@@ -119,7 +131,23 @@ static void key_handler(hid_keyboard_report_t *curr, hid_keyboard_report_t *prev
             }
             if (!found) {
                 // Key pressed
-                unsigned char k = hid_to_apple2(curr->keycode[i], curr->modifier);
+                uint8_t kc = curr->keycode[i];
+                // F9 — toggle show CPU speed
+                if (kc == 0x42) {
+                    show_speed = !show_speed;
+                    continue;
+                }
+                // F12 — momentary turbo
+                if (kc == 0x45) {
+                    turbo_momentary = true;
+                    continue;
+                }
+                // Scroll Lock — toggle turbo
+                if (kc == 0x47) {
+                    turbo_latched = !turbo_latched;
+                    continue;
+                }
+                unsigned char k = hid_to_apple2(kc, curr->modifier);
                 if (k) {
                     event_queue.push({1, k});
                 }
@@ -139,7 +167,13 @@ static void key_handler(hid_keyboard_report_t *curr, hid_keyboard_report_t *prev
             }
             if (!found) {
                 // Key released
-                unsigned char k = hid_to_apple2(prev->keycode[i], prev->modifier);
+                uint8_t kc = prev->keycode[i];
+                // F12 release — disable momentary turbo
+                if (kc == 0x45) {
+                    turbo_momentary = false;
+                    continue;
+                }                
+                unsigned char k = hid_to_apple2(kc, prev->modifier);
                 if (k) {
                     event_queue.push({0, k});
                 }

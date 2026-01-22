@@ -20,6 +20,7 @@
 #include "board_config.h"
 #include "../drivers/psram_allocator.h"
 #include "../drivers/HDMI.h"
+#include "ps2kbd_wrapper.h"
 #include "mii.h"
 #include "mii_sw.h"
 #include "mii_bank.h"
@@ -43,7 +44,7 @@
 // Special key codes from keyboard driver
 #define KEY_F11 0xFB
 
-#define CPU_STAT_WINDOW 10
+#define CPU_STAT_WINDOW 16
 
 typedef struct {
     uint32_t cycles;
@@ -56,8 +57,8 @@ static uint8_t cpu_stat_count = 0;
 
 static void cpu_calc_speed(
         uint32_t *out_khz,
-        uint32_t *out_percent)
-{
+        uint32_t *out_percent
+) {
     if (cpu_stat_count == 0) {
         *out_khz = 0;
         *out_percent = 0;
@@ -732,12 +733,12 @@ int main() {
         uint64_t cycles_before = 0;
         uint64_t cycles_after  = 0;
         bool cpu_ran = false;
-        
+
         // Poll keyboard at start of frame
 //        uint32_t input_start = time_us_32();
-    #if ENABLE_PS2_KEYBOARD
+#if ENABLE_PS2_KEYBOARD
         ps2kbd_tick();
-    #endif
+#endif
         
 #ifdef USB_HID_ENABLED
         // Poll USB HID devices
@@ -967,12 +968,14 @@ int main() {
             cpu_ran = true;
 #if 1
             mii_video_scale_to_hdmi(&g_mii.video, graphics_get_buffer());
-
-            uint32_t khz, percent;
-            cpu_calc_speed(&khz, &percent);
-            char tmp[32];
-            snprintf(tmp, sizeof(tmp), "CPU %4u kHz %3u%%", khz, percent);
-            draw_string(graphics_get_buffer(), 320, 0, 8, tmp, 15);
+            if (ps2kbd_is_show_speed()) {
+                uint32_t khz, percent;
+                cpu_calc_speed(&khz, &percent);
+                char tmp[32];
+                snprintf(tmp, sizeof(tmp), "CPU %4u kHz %3u%%", khz, percent);
+        		memset(graphics_get_buffer(), 0, 320 * 8 / 2);
+                draw_string(graphics_get_buffer(), 320, 0, 8, tmp, 15);
+            }
 #endif
 
     #ifdef FEATURE_AUDIO_I2S
@@ -1014,7 +1017,7 @@ int main() {
             // Throttle to real time so the emulator doesn't run too fast.
             next_frame_deadline += target_frame_us;
             int32_t wait = (int32_t)(next_frame_deadline - frame_end);
-            if (wait > 0) {
+            if (wait > 0 && !ps2kbd_is_turbo()) {
                 sleep_us((uint32_t)wait);
             } else {
                 // мы опоздали — не пытаемся догонять прошлое
