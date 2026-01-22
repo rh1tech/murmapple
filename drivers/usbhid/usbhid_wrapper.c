@@ -117,51 +117,13 @@ void usbhid_wrapper_poll(void) {
     
     // Check if Delete key (0x4C) is currently pressed
     delete_key_pressed = false;
-    uint32_t ns = 0;
     for (int i = 0; i < 6; i++) {
         uint8_t kc = kbd_state.keycode[i];
         if (!kc) continue;
 
         if (kc == HID_KEY_DELETE)
             delete_key_pressed = true;
-
-        switch (kc) {
-            case HID_KEY_ARROW_UP:    ns |= DPAD_UP;    break;
-            case HID_KEY_ARROW_DOWN:  ns |= DPAD_DOWN;  break;
-            case HID_KEY_ARROW_LEFT:  ns |= DPAD_LEFT;  break;
-            case HID_KEY_ARROW_RIGHT: ns |= DPAD_RIGHT; break;
-
-            case HID_KEY_KEYPAD_8: ns |= DPAD_UP;    break;
-            case HID_KEY_KEYPAD_2: ns |= DPAD_DOWN;  break;
-            case HID_KEY_KEYPAD_4: ns |= DPAD_LEFT;  break;
-            case HID_KEY_KEYPAD_6: ns |= DPAD_RIGHT; break;
-
-            case HID_KEY_KEYPAD_7: ns |= (DPAD_UP   | DPAD_LEFT);  break;
-            case HID_KEY_KEYPAD_9: ns |= (DPAD_UP   | DPAD_RIGHT); break;
-            case HID_KEY_KEYPAD_1: ns |= (DPAD_DOWN | DPAD_LEFT);  break;
-            case HID_KEY_KEYPAD_3: ns |= (DPAD_DOWN | DPAD_RIGHT); break;
-
-            case HID_KEY_KEYPAD_0:        ns |= DPAD_START;  break;
-            case HID_KEY_KEYPAD_DECIMAL: ns |= DPAD_SELECT; break;
-
-            case HID_KEY_CONTROL_LEFT:
-            case HID_KEY_CONTROL_RIGHT:
-                ns |= DPAD_A;
-                break;
-
-            case HID_KEY_ALT_LEFT:
-            case HID_KEY_ALT_RIGHT:
-                ns |= DPAD_B;
-                break;
-        }            
     }
-    if (kbd_state.modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL))
-        ns |= DPAD_A;
-
-    if (kbd_state.modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT))
-        ns |= DPAD_B;
-    
-    numpad_state = ns;
 }
 
 int usbhid_wrapper_keyboard_connected(void) {
@@ -202,6 +164,41 @@ int usbhid_wrapper_get_key(int *pressed, unsigned char *key) {
             }
             continue;
         }
+
+        switch (hid_keycode) {
+            case HID_KEY_ARROW_UP:
+            case HID_KEY_KEYPAD_8: if (down) numpad_state |= DPAD_UP;    else numpad_state &= ~DPAD_UP; break;
+
+            case HID_KEY_ARROW_DOWN:
+            case HID_KEY_KEYPAD_2:
+            case HID_KEY_KEYPAD_5: if (down) numpad_state |= DPAD_DOWN;  else numpad_state &= ~DPAD_DOWN; break;
+
+            case HID_KEY_ARROW_LEFT:
+            case HID_KEY_KEYPAD_4: if (down) numpad_state |= DPAD_LEFT;  else numpad_state &= ~DPAD_LEFT; break;
+            
+            case HID_KEY_ARROW_RIGHT:
+            case HID_KEY_KEYPAD_6: if (down) numpad_state |= DPAD_RIGHT; else numpad_state &= ~DPAD_RIGHT; break;
+
+            case HID_KEY_KEYPAD_7: if (down) numpad_state |= (DPAD_UP   | DPAD_LEFT);  else numpad_state &= ~(DPAD_UP   | DPAD_LEFT); break;
+            case HID_KEY_KEYPAD_9: if (down) numpad_state |= (DPAD_UP   | DPAD_RIGHT); else numpad_state &= ~(DPAD_UP   | DPAD_RIGHT); break;
+            case HID_KEY_KEYPAD_1: if (down) numpad_state |= (DPAD_DOWN | DPAD_LEFT);  else numpad_state &= ~(DPAD_DOWN | DPAD_LEFT); break;
+            case HID_KEY_KEYPAD_3: if (down) numpad_state |= (DPAD_DOWN | DPAD_RIGHT); else numpad_state &= ~(DPAD_DOWN | DPAD_RIGHT); break;
+
+            case HID_KEY_KEYPAD_0:       if (down) numpad_state |= DPAD_START;  else numpad_state &= ~DPAD_START; break;
+            case HID_KEY_KEYPAD_DECIMAL: if (down) numpad_state |= DPAD_SELECT; else numpad_state &= ~DPAD_SELECT; break;
+
+            case HID_KEY_CONTROL_LEFT:
+            case HID_KEY_CONTROL_RIGHT:
+                if (down) numpad_state |= DPAD_A;
+                else numpad_state &= ~DPAD_A; 
+                break;
+
+            case HID_KEY_ALT_LEFT:
+            case HID_KEY_ALT_RIGHT:
+                if (down) numpad_state |= DPAD_B;
+                else numpad_state &= ~DPAD_B;
+                break;
+        }            
         
         unsigned char apple2_key = hid_to_apple2(hid_keycode, kbd_state.modifier);
         if (apple2_key != 0) {
@@ -210,7 +207,7 @@ int usbhid_wrapper_get_key(int *pressed, unsigned char *key) {
             return 1;
         }
     }
-    
+debug_keycode = numpad_state;
     return 0;
 }
 
@@ -230,7 +227,7 @@ uint32_t usbhid_wrapper_get_gamepad_state(void) {
     usbhid_get_gamepad_state(&gp);
     
     if (!gp.connected) {
-        return 0;
+        return numpad_state;
     }
     
     uint32_t buttons = 0;

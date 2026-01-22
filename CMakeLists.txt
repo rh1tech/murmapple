@@ -20,7 +20,7 @@ set(BUILD_NAME "murmapple")
 set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 # Board configuration variant (M1, M2)
-set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
+set(BOARD_VARIANT "M2" CACHE STRING "Board variant: M1 or M2")
 
 # CPU overclock configuration (252, 378, 504 MHz)
 set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
@@ -35,7 +35,7 @@ set(PSRAM_SPEED "84" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166
 
 # MOS2 support (generate .m1p2 or m2p2 for Murmulator OS instead of .uf2)
 option(MOS2 "Build for Murmulator OS (m1p2/m2p2 format)" OFF)
-#set(MOS2 ON)
+set(MOS2 ON)
 
 # CPU voltage selection based on speed
 if(CPU_SPEED GREATER_EQUAL 504)

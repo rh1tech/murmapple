@@ -220,12 +220,12 @@ picotool load -f build/murmapple.uf2
 ### Keyboard to joystick mapping
 - KP 6 → RIGHT
 - KP 4 → LEFT
-- KP 2 → DOWN
+- KP 2 & 5 → DOWN
 - KP 8 → UP
-- Ins → START
-- Del → SELECT
 - Any Control → A
 - Any Alt → B
+- Ins → START
+- Del → SELECT
 
 ### Gamepad (NES/USB)
 - A Button: Left paddle button (Open Apple)

@@ -246,6 +246,7 @@ static void process_keyboard(void) {
                 disk_ui_handle_key(key);
                 currently_held_key = key;
                 key_hold_frames = 0;
+                sleep_ms(33);
                 continue;
             }
             
@@ -278,6 +279,7 @@ static void process_keyboard(void) {
                 disk_ui_handle_key(key);
                 currently_held_key = key;
                 key_hold_frames = 0;
+                sleep_ms(33);
                 continue;
             }
             
@@ -306,6 +308,7 @@ static void process_keyboard(void) {
                 // If disk UI is visible, repeat keys there
                 if (disk_ui_is_visible()) {
                     disk_ui_handle_key(currently_held_key);
+                    sleep_ms(33);
                 } else {
                     mii_bank_t *sw = &g_mii.bank[MII_BANK_SW];
                     uint8_t strobe = mii_bank_peek(sw, 0xc010);
@@ -989,7 +992,7 @@ int main() {
                 uint32_t khz, percent;
                 cpu_calc_speed(&khz, &percent);
                 char tmp[32];
-                snprintf(tmp, sizeof(tmp), "CPU %4u kHz %3u%%", khz, percent);
+                snprintf(tmp, sizeof(tmp), "CPU %4u kHz %3u%% %xh", khz, percent, debug_keycode);
         		memset(graphics_get_buffer(), 0, 320 * 8 / 2);
                 draw_string(graphics_get_buffer(), 320, 0, 8, tmp, 15);
             }
