@@ -488,11 +488,12 @@ int main() {
 #if PSRAM_MAX_FREQ_MHZ
     // Initialize PSRAM
     MII_DEBUG_PRINTF("Initializing PSRAM...\n");
+#if PICO_PR2350
     uint psram_pin = get_psram_pin();
     psram_init(psram_pin);
     psram_set_sram_mode(0);  // Use PSRAM mode (not SRAM simulation)
     MII_DEBUG_PRINTF("PSRAM initialized on CS pin %d\n", psram_pin);
-    
+#endif    
     // Test PSRAM read/write
     volatile uint8_t *psram = (volatile uint8_t *)0x11000000;
     psram[0] = 0xAB;

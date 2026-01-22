@@ -59,7 +59,7 @@ typedef struct sram_page_t {
 		#if FEATURE_AUDIO_I2S
 			#define RAM_PAGES_PER_POOL (242-66)
 		#else
-			#define RAM_PAGES_PER_POOL (242)
+			#define RAM_PAGES_PER_POOL (256)
 		#endif
 	#endif
 #else

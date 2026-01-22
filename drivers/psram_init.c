@@ -1,3 +1,4 @@
+#if PICO_PR2350
 #include "psram_init.h"
 #include "hardware/structs/qmi.h"
 #include "hardware/structs/xip_ctrl.h"
@@ -71,3 +72,4 @@ void __no_inline_not_in_flash_func(psram_init)(uint cs_pin) {
     
     hw_set_bits(&xip_ctrl_hw->ctrl, XIP_CTRL_WRITABLE_M1_BITS);
 }
+#endif
