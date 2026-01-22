@@ -1,5 +1,6 @@
 #include "psram_allocator.h"
 #include "psram_allocator.h"
+#include <pico.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,7 +13,7 @@
 // PSRAM (CS1) is usually mapped at 0x11000000.
 
 #define PSRAM_BASE 0x11000000
-#define PSRAM_SIZE ((size_t)MURMDOOM_PSRAM_SIZE_BYTES)
+#define PSRAM_SIZE ((size_t)MURM_PSRAM_SIZE_BYTES)
 
 static uint8_t *psram_start = (uint8_t *)PSRAM_BASE;
 // Reserve 512KB for scratch buffers at the beginning
@@ -171,4 +172,28 @@ void psram_restore_session(void) {
     psram_temp_offset = 0;
     printf("PSRAM: Session restored to offset %d (freed %.2f MB)\n",
            (int)psram_offset, freed / (1024.0 * 1024.0));
+}
+
+static int BUTTER_PSRAM_SIZE = -1;
+#define MB16 (16ul << 20)
+#define MB8 (8ul << 20)
+#define MB4 (4ul << 20)
+#define MB1 (1ul << 20)
+unsigned int __not_in_flash_func() butter_psram_size() {
+    if (BUTTER_PSRAM_SIZE != -1) return BUTTER_PSRAM_SIZE;
+    for(register int i = MB8; i < MB16; i += 4096)
+        PSRAM_DATA[i] = 16;
+    for(register int i = MB4; i < MB8; i += 4096)
+        PSRAM_DATA[i] = 8;
+    for(register int i = MB1; i < MB4; i += 4096)
+        PSRAM_DATA[i] = 4;
+    for(register int i = 0; i < MB1; i += 4096)
+        PSRAM_DATA[i] = 1;
+    register uint32_t res = PSRAM_DATA[MB16 - 4096];
+    for (register int i = MB16 - MB1; i < MB16; i += 4096) {
+        if (res != PSRAM_DATA[i])
+            return 0;
+    }
+    BUTTER_PSRAM_SIZE = res << 20;
+    return BUTTER_PSRAM_SIZE;
 }

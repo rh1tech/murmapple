@@ -5,9 +5,10 @@
 
 // Total external PSRAM size (bytes). Keep in sync with the hardware used.
 // Used by UI/status display and allocator partitioning.
-#ifndef MURMDOOM_PSRAM_SIZE_BYTES
-#define MURMDOOM_PSRAM_SIZE_BYTES (8u * 1024u * 1024u)
+#ifndef MURM_PSRAM_SIZE_BYTES
+#define MURM_PSRAM_SIZE_BYTES (8u * 1024u * 1024u)
 #endif
+#define PSRAM_DATA ((uint8_t*)(intptr_t)0x11000000)
 
 void *psram_malloc(size_t size);
 void *psram_realloc(void *ptr, size_t size);
@@ -25,5 +26,7 @@ size_t psram_get_temp_offset(void);
 void psram_set_temp_offset(size_t offset);
 
 void psram_set_sram_mode(int enable); // Force SRAM allocation for proper malloc/free
+
+unsigned int butter_psram_size();
 
 #endif

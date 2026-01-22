@@ -48,6 +48,7 @@ typedef struct {
 
 #define BDSK_MAGIC "BDSK"
 #define BDSK_VERSION 1
+#define BDSK_TRACKS 35
 #define BDSK_TRACK_DATA_SIZE 6656
 #define BDSK_MAX_BITS (BDSK_TRACK_DATA_SIZE * 8)
 

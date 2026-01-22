@@ -17,6 +17,7 @@ typedef struct {
     uint32_t cpu_mhz;
 #if PSRAM_MAX_FREQ_MHZ
     uint32_t psram_mhz;
+    uint32_t psram_sz;
 #endif
     uint8_t board_variant;
 } mii_startscreen_info_t;

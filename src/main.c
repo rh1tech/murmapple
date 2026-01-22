@@ -654,6 +654,9 @@ int main() {
     board_num = 2;
 #endif
 
+#if PSRAM_MAX_FREQ_MHZ
+    uint32_t bs = butter_psram_size();
+#endif
     mii_startscreen_info_t screen_info = {
         .title = "MurmApple",
         .subtitle = "Apple IIe Emulator",
@@ -661,6 +664,7 @@ int main() {
         .cpu_mhz = CPU_CLOCK_MHZ,
 #if PSRAM_MAX_FREQ_MHZ
         .psram_mhz = PSRAM_MAX_FREQ_MHZ,
+        .psram_sz = bs,
 #endif
         .board_variant = board_num,
     };
