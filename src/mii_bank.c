@@ -74,6 +74,17 @@ mii_bank_access(
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #endif
 
+// in mii_mb.c
+bool
+_mii_mb_romspace_access(
+		struct mii_bank_t *bank,
+		void *param,
+		uint16_t addr,
+		uint8_t * byte,
+		bool write)
+;
+extern mii_t g_mii;
+
 void
 mii_bank_write(
 		mii_bank_t *bank,
@@ -81,8 +92,18 @@ mii_bank_write(
 		const uint8_t *data,
 		uint16_t len)
 {
-    if (mii_bank_access(bank, addr, data, len, true))
-        return;
+#if WITH_BANK_ACCESS
+	if (mii_bank_access(bank, addr, data, len, true))
+		return;
+#else
+    if (len == 1 && bank == &g_mii.bank[MII_BANK_CARD_ROM]) { // TODO: support for other len?
+		uint8_t off = addr & 0xFF;
+		if (off <= 0x1F) {
+			if (_mii_mb_romspace_access(bank, NULL, addr, (uint8_t*)data, true))
+				return;
+		}
+    }
+#endif
 	if (!bank->vram) {
 		uint32_t phy = bank->logical_mem_offset + addr - bank->base;
 		do {
@@ -112,8 +133,18 @@ mii_bank_read(
 		uint8_t *data,
 		uint16_t len)
 {
+#if WITH_BANK_ACCESS
 	if (mii_bank_access(bank, addr, data, len, false))
 		return;
+#else
+    if (len == 1 && bank == &g_mii.bank[MII_BANK_CARD_ROM]) { // TODO: support for other len?
+		uint8_t off = addr & 0xFF;
+		if (off <= 0x1F) {
+			if (_mii_mb_romspace_access(bank, NULL, addr, data, false))
+				return;
+		}
+    }
+#endif
 	if (!bank->vram) {
 		uint32_t phy = bank->logical_mem_offset + addr - bank->base;
 		do {

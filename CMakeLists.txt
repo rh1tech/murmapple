@@ -16,7 +16,7 @@ cmake_minimum_required(VERSION 3.13)
 
 set(BUILD_NAME "murmapple")
 
-set(BUILD_VERSION "RC17")
+set(BUILD_VERSION "RC18")
 
 # Set board to Pico 2 (RP2350)
 set(PICO_BOARD pico2 CACHE STRING "Board type")
@@ -199,6 +199,10 @@ add_executable(${BUILD_NAME}
     src/disk_ui.c
     src/mii_startscreen.c
     src/mii_analog.c
+#mockingboard
+    src/mii_mb.c
+    src/mii_audio.c
+    src/mockingboard.c
     # Disk drive support
     src/mii_slot.c
     src/mii_dd_stub.c

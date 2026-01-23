@@ -72,10 +72,27 @@ mii_mb_start(
 	mii_audio_add_source(&mb->mii->audio, &mb->source);
 }
 
+#if !WITH_BANK_ACCESS
+static mii_mb_t* g_mb_slots[8] = { 0 };
+
+inline static mii_mb_t*
+mii_mb_from_addr(uint16_t addr)
+{
+    if ((addr & 0xF000) != 0xC000)
+        return NULL;
+
+    uint8_t slot = (addr >> 8) & 0x0F;
+    if (slot < 1 || slot > 7)
+        return NULL;
+
+    return g_mb_slots[slot - 1];
+}
+#endif
+
 /*
  * this is a protothread, so remember no locals that will survive a yield()
  */
-static bool
+bool
 _mii_mb_romspace_access(
 		struct mii_bank_t *bank,
 		void *param,
@@ -87,8 +104,14 @@ _mii_mb_romspace_access(
 		MII_DEBUG_PRINTF("%s: no bank\n", __func__);
 		return false;
 	}
-	mii_mb_t * mb = param;
-//	addr &= 0xff;
+#if WITH_BANK_ACCESS
+	mii_mb_t* mb = param;
+#else
+    mii_mb_t*mb = mii_mb_from_addr(addr);
+#endif
+	if (!mb) return false;
+
+	//	addr &= 0xff;
 //	if (mb->init_done)
 	switch (addr & 0xff) {
 		case MB_CARD_MOCKINGBOARD_ORB1 ... MB_CARD_MOCKINGBOARD_ORB1+0xf:
@@ -135,7 +158,6 @@ _mii_mb_probe(
 	return 1;
 }
 
-
 static int
 _mii_mb_init(
 		mii_t * mii,
@@ -160,8 +182,11 @@ _mii_mb_init(
 
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	mii_mb_start(mb);
-	mii_bank_install_access_cb(&mii->bank[MII_BANK_CARD_ROM],
-			_mii_mb_romspace_access, mb, addr >> 8, 0);
+#if WITH_BANK_ACCESS
+	mii_bank_install_access_cb(&mii->bank[MII_BANK_CARD_ROM], _mii_mb_romspace_access, mb, addr >> 8, 0);
+#else
+	g_mb_slots[slot->id] = mb;
+#endif
 	return 0;
 }
 
