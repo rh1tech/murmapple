@@ -16,7 +16,7 @@ cmake_minimum_required(VERSION 3.13)
 
 set(BUILD_NAME "murmapple")
 
-set(BUILD_VERSION "RC18")
+set(BUILD_VERSION "RC19")
 
 # Set board to Pico 2 (RP2350)
 set(PICO_BOARD pico2 CACHE STRING "Board type")
@@ -27,10 +27,11 @@ set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
 # CPU overclock configuration (252, 378, 504 MHz)
 set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
-set(VIDEO_HDMI ON)
-#set(VIDEO_VGA ON)
+#set(VIDEO_HDMI ON)
+set(VIDEO_VGA ON)
 
-#set(PWM_SOUND ON)
+#set(PWM_BEEPER_ONLY ON CACHE STRING "for RP2040 reduced RAM mode")
+set(PWM_SOUND ON)
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 set(PSRAM_SPEED "84" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
@@ -199,10 +200,6 @@ add_executable(${BUILD_NAME}
     src/disk_ui.c
     src/mii_startscreen.c
     src/mii_analog.c
-#mockingboard
-    src/mii_mb.c
-    src/mii_audio.c
-    src/mockingboard.c
     # Disk drive support
     src/mii_slot.c
     src/mii_dd_stub.c
@@ -216,6 +213,9 @@ add_executable(${BUILD_NAME}
     # Audio support
     src/mii_audio_i2s.c
     # Note: mii_speaker.c is excluded - stub provided in main.c for RP2350
+#mockingboard
+    src/mii_mb.c
+    src/mii_audio.c
     src/mockingboard.c
 )
 
@@ -257,10 +257,16 @@ target_compile_definitions(${BUILD_NAME} PRIVATE
     PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
     PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
 )
-if (PWM_SOUND)
-    target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_PWM=1)
+if (PWM_BEEPER_ONLY) # reduce RAM usage
+    target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_PWM_BEEPER=1)
 else()
-    target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_I2S=1)
+    #generation type
+    target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_PCM=1)
+    if (PWM_SOUND)
+        target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_PWM=1)
+    else()
+        target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_I2S=1)
+    endif()
 endif()
 
 if (PICO_BOARD STREQUAL "pico2")

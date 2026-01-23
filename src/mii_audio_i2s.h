@@ -10,7 +10,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Audio sample rate (CD quality)
+#define PWM_BITS 12
+#define PWM_WRAP ((1 << PWM_BITS) - 1)
+#define PWM_OSR               16
+#define PWM_AUDIO_RATE        11025
+#define PWM_DMA_SAMPLES       (PWM_OSR)
+
+// Audio sample rate
 #define MII_I2S_SAMPLE_RATE     11025
 
 // Audio buffer size in samples (per channel)

@@ -96,14 +96,14 @@ void draw_string(uint8_t *fb, int fb_width, int x, int y, const char *str, uint8
 
 void mii_speaker_click(mii_speaker_t *speaker) {
     (void)speaker;
-#ifdef FEATURE_AUDIO_I2S
+#if defined(FEATURE_AUDIO_I2S) || defined(FEATURE_AUDIO_PWM)
     // Forward speaker clicks to I2S audio driver
     extern mii_t g_mii;
     if (mii_audio_i2s_is_init()) {
         mii_audio_speaker_click(g_mii.cpu.total_cycle);
     }
 #endif
-#ifdef FEATURE_AUDIO_PWM
+#ifdef FEATURE_AUDIO_PWM_BEEPER
     static bool state = true;
     pwm_set_gpio_level(BEEPER_PIN, state ? ((1 << 12) - 1) : 0);
     state = !state;
@@ -443,6 +443,17 @@ static void PWM_init_pin(uint8_t pinN, uint16_t max_lvl) {
     pwm_init(pwm_gpio_to_slice_num(pinN), &config, true);
 }
 
+const uint32_t a2_cycles_per_second = 1023000;
+const uint32_t cycles_per_frame = 17030;  // 12480 visible + 4550 vblank
+
+#if defined(FEATURE_AUDIO_PWM)
+static bool __not_in_flash_func() timer_callback(repeating_timer_t *rt) {
+    // Update audio output - fills PWM DMA buffer
+    mii_audio_update(g_mii.cpu.total_cycle, a2_cycles_per_second);
+    return true;
+}
+#endif
+
 int main() {
     // Overclock support: For speeds > 252 MHz, increase voltage first
 #if CPU_CLOCK_MHZ > 252
@@ -696,7 +707,7 @@ int main() {
     MII_DEBUG_PRINTF("Core 1 launched\n");
 #endif
     
-#ifdef FEATURE_AUDIO_I2S
+#if defined(FEATURE_AUDIO_I2S) || defined(FEATURE_AUDIO_PWM)
     // Initialize I2S audio
     MII_DEBUG_PRINTF("Initializing I2S audio...\n");
     if (mii_audio_i2s_init()) {
@@ -706,7 +717,12 @@ int main() {
         MII_DEBUG_PRINTF("I2S audio initialization failed\n");
     }
 #endif
-#ifdef FEATURE_AUDIO_PWM
+#if defined(FEATURE_AUDIO_PWM)
+    // negative timeout means exact delay (rather than delay between callbacks)
+    static repeating_timer_t timer;
+    add_repeating_timer_us(-1000000 / PWM_AUDIO_RATE, timer_callback, NULL, &timer);
+#endif
+#ifdef FEATURE_AUDIO_PWM_BEEPER
     PWM_init_pin(BEEPER_PIN, (1 << 12) - 1);
 #endif
 
@@ -718,8 +734,6 @@ int main() {
     // Apple II runs at ~1.023 MHz = 1,023,000 cycles/second.
     // VBL timing is handled by mii_video_vbl_timer_cb at proper cycle counts.
     // Video timing: visible=12480 cycles, VBL=4550 cycles (total 17030/frame)
-    const uint32_t a2_cycles_per_second = 1023000;
-    const uint32_t cycles_per_frame = 17030;  // 12480 visible + 4550 vblank
     const uint32_t target_frame_us = (uint32_t)((1000000ULL * cycles_per_frame + (a2_cycles_per_second / 2)) / a2_cycles_per_second);
     
     uint32_t frame_count = 0;
@@ -993,10 +1007,10 @@ int main() {
             video_core_iteration();
 #endif
 
-    #ifdef FEATURE_AUDIO_I2S
-            // Update audio output - fills I2S buffers
-            mii_audio_update(cycles_after, a2_cycles_per_second);
-    #endif
+            #if defined(FEATURE_AUDIO_I2S)
+                // Update audio output - fills I2S buffers
+                mii_audio_update(cycles_after, a2_cycles_per_second);
+            #endif
             // Video mode change detection - only print when mode changes
             if ((frame_count % 60) == 0) {
                 uint32_t sw = g_mii.sw_state;
