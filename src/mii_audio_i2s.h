@@ -11,11 +11,11 @@
 #include <stdbool.h>
 
 // Audio sample rate (CD quality)
-#define MII_I2S_SAMPLE_RATE     22050
+#define MII_I2S_SAMPLE_RATE     11025
 
 // Audio buffer size in samples (per channel)
-// At 22050 Hz, 512 samples = ~23ms latency
-#define MII_I2S_BUFFER_SAMPLES  512
+// At 11025 Hz, 512 samples = ~23ms latency
+#define MII_I2S_BUFFER_SAMPLES  256
 
 // Number of audio buffers for double/triple buffering
 #define MII_I2S_BUFFER_COUNT    3

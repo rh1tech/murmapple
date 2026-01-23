@@ -55,8 +55,8 @@
 
 // Sample buffer for apple2ts-style audio generation
 // Algorithm from Kent Dickey: accumulate fractional contributions per sample
-#define SAMPLE_BUFFER_SIZE 16384  // ~0.74 seconds at 22050 Hz (larger buffer)
-#define SAMPLE_BUFFER_OFFSET 1024 // Playback lags behind writes by this many samples (~46ms)
+#define SAMPLE_BUFFER_SIZE 8192  // ~0.74 seconds at 11025 Hz (larger buffer)
+#define SAMPLE_BUFFER_OFFSET 512 // Playback lags behind writes by this many samples (~46ms)
 
 static struct {
     // Circular buffer of sample contributions
@@ -176,8 +176,8 @@ bool mii_audio_i2s_init(void)
     sample_buffer.speaker_value = 256;  // Start HIGH (256 = +1.0 in 8.8 fixed point)
     
     // Calculate samples per CPU cycle as 16.16 fixed point
-    // 22050 / 1020484 ≈ 0.0432, in 16.16 fixed point = 2831/2 ?
-    sample_buffer.samples_per_cycle_frac = (uint32_t)((22050ULL << 16) / 1020484ULL);
+    // 11025 / 1020484 ≈ 0.0432, in 16.16 fixed point = 2831/2 ?
+    sample_buffer.samples_per_cycle_frac = (uint32_t)((11025ULL << 16) / 1020484ULL);
     
     // Initialize speaker state
     audio_state.speaker_sample = 0;
