@@ -27,8 +27,8 @@ set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
 # CPU overclock configuration (252, 378, 504 MHz)
 set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
-#set(VIDEO_HDMI ON)
-set(VIDEO_VGA ON)
+set(VIDEO_HDMI ON)
+#set(VIDEO_VGA ON)
 
 #set(PWM_BEEPER_ONLY ON CACHE STRING "for RP2040 reduced RAM mode")
 set(PWM_SOUND ON)
