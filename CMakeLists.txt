@@ -16,7 +16,7 @@ cmake_minimum_required(VERSION 3.13)
 
 set(BUILD_NAME "murmapple")
 
-set(BUILD_VERSION "RC19")
+set(BUILD_VERSION "RC20")
 
 # Set board to Pico 2 (RP2350)
 set(PICO_BOARD pico2 CACHE STRING "Board type")
@@ -25,7 +25,7 @@ set(PICO_BOARD pico2 CACHE STRING "Board type")
 set(BOARD_VARIANT "M2" CACHE STRING "Board variant: M1 or M2")
 
 # CPU overclock configuration (252, 378, 504 MHz)
-set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
+set(CPU_SPEED "504" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
 set(VIDEO_TYPE "HDMI" CACHE STRING "Video output: HDMI or VGA")
 
@@ -36,7 +36,7 @@ elseif(VIDEO_TYPE STREQUAL "VGA")
 endif()
 
 # Audio output configuration (I2S or PWM)
-set(AUDIO_TYPE "I2S" CACHE STRING "Audio output: I2S or PWM")
+set(AUDIO_TYPE "PWM" CACHE STRING "Audio output: I2S or PWM")
 
 #set(PWM_BEEPER_ONLY ON CACHE STRING "for RP2040 reduced RAM mode")
 
@@ -225,10 +225,10 @@ add_executable(${BUILD_NAME}
     # Audio support
     src/mii_audio_i2s.c
     # Note: mii_speaker.c is excluded - stub provided in main.c for RP2350
-#mockingboard
-    src/mii_mb.c
     src/mii_audio.c
-    src/mockingboard.c
+#mockingboard
+#    src/mii_mb.c
+#    src/mockingboard.c
 )
 
 if (PICO_BOARD STREQUAL "pico")

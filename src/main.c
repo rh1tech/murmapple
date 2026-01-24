@@ -504,7 +504,7 @@ int main() {
 #if PSRAM_MAX_FREQ_MHZ
     // Initialize PSRAM
     MII_DEBUG_PRINTF("Initializing PSRAM...\n");
-#if PICO_PR2350
+#if PICO_RP2350
     uint psram_pin = get_psram_pin();
     psram_init(psram_pin);
     psram_set_sram_mode(0);  // Use PSRAM mode (not SRAM simulation)

@@ -74,6 +74,7 @@ mii_bank_access(
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #endif
 
+#if WITH_MB
 // in mii_mb.c
 bool
 _mii_mb_romspace_access(
@@ -84,6 +85,7 @@ _mii_mb_romspace_access(
 		bool write)
 ;
 extern mii_t g_mii;
+#endif
 
 void
 mii_bank_write(
@@ -95,7 +97,7 @@ mii_bank_write(
 #if WITH_BANK_ACCESS
 	if (mii_bank_access(bank, addr, data, len, true))
 		return;
-#else
+#elif WITH_MB
     if (len == 1 && bank == &g_mii.bank[MII_BANK_CARD_ROM]) { // TODO: support for other len?
 		uint8_t off = addr & 0xFF;
 		if (off <= 0x1F) {
@@ -136,7 +138,7 @@ mii_bank_read(
 #if WITH_BANK_ACCESS
 	if (mii_bank_access(bank, addr, data, len, false))
 		return;
-#else
+#elif WITH_MB
     if (len == 1 && bank == &g_mii.bank[MII_BANK_CARD_ROM]) { // TODO: support for other len?
 		uint8_t off = addr & 0xFF;
 		if (off <= 0x1F) {

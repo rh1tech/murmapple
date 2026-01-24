@@ -1,4 +1,4 @@
-#if PICO_PR2350
+#if PICO_RP2350
 #include "psram_init.h"
 #include "hardware/structs/qmi.h"
 #include "hardware/structs/xip_ctrl.h"
