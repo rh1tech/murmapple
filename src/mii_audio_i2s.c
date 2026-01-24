@@ -11,14 +11,21 @@
 #include <string.h>
 #include "debug_log.h"
 
-#include "pico/stdlib.h"
-#include "hardware/gpio.h"
-#include "hardware/clocks.h"
+#include <pico/stdlib.h>
+#include <pico/stdlib.h>
+#include <hardware/pwm.h>
+#include <hardware/dma.h>
+#include <hardware/gpio.h>
+#include <hardware/clocks.h>
+
+#include "mii_audio.h"
 
 // We need pico_audio_i2s from pico-extras
+#if defined(FEATURE_AUDIO_I2S)
 #define none pico_audio_enum_none
 #include "pico/audio_i2s.h"
 #undef none
+#endif
 
 //=============================================================================
 // Configuration
@@ -55,8 +62,8 @@
 
 // Sample buffer for apple2ts-style audio generation
 // Algorithm from Kent Dickey: accumulate fractional contributions per sample
-#define SAMPLE_BUFFER_SIZE 16384  // ~0.74 seconds at 22050 Hz (larger buffer)
-#define SAMPLE_BUFFER_OFFSET 1024 // Playback lags behind writes by this many samples (~46ms)
+#define SAMPLE_BUFFER_SIZE 8192  // ~0.74 seconds at 11025 Hz (larger buffer)
+#define SAMPLE_BUFFER_OFFSET 512 // Playback lags behind writes by this many samples (~46ms)
 
 static struct {
     // Circular buffer of sample contributions
@@ -87,8 +94,9 @@ static struct {
     bool initialized;
     
     // Audio buffer pool
+#if defined(FEATURE_AUDIO_I2S)
     struct audio_buffer_pool *producer_pool;
-    
+#endif    
     // For visualization
     int16_t speaker_sample;
     
@@ -103,6 +111,7 @@ static struct {
 } audio_state;
 
 // Audio format configuration
+#if defined(FEATURE_AUDIO_I2S)
 static struct audio_format audio_format = {
     .format = AUDIO_BUFFER_FORMAT_PCM_S16,
     .sample_freq = MII_I2S_SAMPLE_RATE,
@@ -113,6 +122,16 @@ static struct audio_buffer_format producer_format = {
     .format = &audio_format,
     .sample_stride = 4  // 2 channels * 2 bytes per sample
 };
+#endif
+#if defined(FEATURE_AUDIO_PWM)
+static int g_pwm_dma_chan = -1;
+static uint g_pwm_slice = 0;
+
+// DMA буфер: по одному 32-бит слову на сэмпл (L в low16, R в high16)
+static uint32_t *g_pwm_dma_buf = NULL;
+static uint32_t g_pwm_dma_count = 0;
+static bool g_pwm_dma_active = false;
+#endif
 
 //=============================================================================
 // Implementation
@@ -127,6 +146,46 @@ bool mii_audio_i2s_init(void)
     // Clear state
     memset(&audio_state, 0, sizeof(audio_state));
     
+#if defined(FEATURE_AUDIO_PWM)
+    // PWM pins must be adjacent for single-slice stereo via CC
+    gpio_set_function(PWM_RIGHT_PIN, GPIO_FUNC_PWM);
+    gpio_set_function(PWM_LEFT_PIN,  GPIO_FUNC_PWM);
+
+    // Both pins (10/11) share the same slice
+    g_pwm_slice = pwm_gpio_to_slice_num(PWM_RIGHT_PIN);
+    pwm_config pcfg = pwm_get_default_config();
+    pwm_config_set_clkdiv(&pcfg, 1.0f);
+    pwm_config_set_wrap(&pcfg, PWM_WRAP);
+    pwm_init(g_pwm_slice, &pcfg, true);
+
+    // init duty to mid
+    pwm_set_gpio_level(PWM_RIGHT_PIN, PWM_WRAP >> 1);
+    pwm_set_gpio_level(PWM_LEFT_PIN,  PWM_WRAP >> 1);
+
+    // Allocate DMA buffer sized to ONE audio buffer worth of frames
+    static uint32_t dma_buf[PWM_DMA_SAMPLES];
+    g_pwm_dma_count = PWM_DMA_SAMPLES;
+    g_pwm_dma_buf = dma_buf;
+
+    g_pwm_dma_chan = dma_claim_unused_channel(true);
+
+    dma_channel_config dcfg = dma_channel_get_default_config(g_pwm_dma_chan);
+    channel_config_set_transfer_data_size(&dcfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&dcfg, true);
+    channel_config_set_write_increment(&dcfg, false);
+    channel_config_set_dreq(&dcfg, pwm_get_dreq(g_pwm_slice));
+
+    // Destination = PWM CC register (writes both A/B in one 32-bit word)
+    dma_channel_configure(
+        g_pwm_dma_chan,
+        &dcfg,
+        &pwm_hw->slice[g_pwm_slice].cc,
+        g_pwm_dma_buf,
+        g_pwm_dma_count,
+        false
+    );
+#endif
+#if defined(FEATURE_AUDIO_I2S)
     // Create audio buffer pool
     audio_state.producer_pool = audio_new_producer_pool(
         &producer_format, 
@@ -138,7 +197,7 @@ bool mii_audio_i2s_init(void)
         MII_DEBUG_PRINTF("mii_audio_i2s_init: failed to create producer pool\n");
         return false;
     }
-    
+
     // Configure I2S pins using PICO_AUDIO_I2S_* defines
     struct audio_i2s_config config = {
         .data_pin = PICO_AUDIO_I2S_DATA_PIN,
@@ -167,6 +226,7 @@ bool mii_audio_i2s_init(void)
     
     // Enable I2S
     audio_i2s_set_enabled(true);
+#endif
     
     // Initialize sample buffer (apple2ts style)
     memset(&sample_buffer, 0, sizeof(sample_buffer));
@@ -176,8 +236,8 @@ bool mii_audio_i2s_init(void)
     sample_buffer.speaker_value = 256;  // Start HIGH (256 = +1.0 in 8.8 fixed point)
     
     // Calculate samples per CPU cycle as 16.16 fixed point
-    // 22050 / 1020484 ≈ 0.0432, in 16.16 fixed point = 2831/2 ?
-    sample_buffer.samples_per_cycle_frac = (uint32_t)((22050ULL << 16) / 1020484ULL);
+    // 11025 / 1020484 ≈ 0.0432, in 16.16 fixed point = 2831/2 ?
+    sample_buffer.samples_per_cycle_frac = (uint32_t)(((uint64_t)MII_I2S_SAMPLE_RATE << 16) / 1020484ULL);
     
     // Initialize speaker state
     audio_state.speaker_sample = 0;
@@ -197,7 +257,9 @@ void mii_audio_i2s_shutdown(void)
         return;
     }
     
+#if defined(FEATURE_AUDIO_I2S)
     audio_i2s_set_enabled(false);
+#endif
     audio_state.initialized = false;
 }
 
@@ -304,6 +366,35 @@ static inline int16_t clamp_s16(int32_t v)
     return (int16_t)v;
 }
 
+#if defined(FEATURE_AUDIO_PWM)
+static inline uint16_t pcm16_to_pwm_u16(int16_t s) {
+    uint32_t u = (uint16_t)(s + 32768);
+    return (uint16_t)((u * ((uint32_t)PWM_WRAP + 1)) >> 16);
+}
+
+static void pwm_submit_one_sample(int16_t l, int16_t r)
+{
+    if (g_pwm_dma_active && dma_channel_is_busy(g_pwm_dma_chan))
+        return;
+
+    uint16_t pl = pcm16_to_pwm_u16(l);
+    uint16_t pr = pcm16_to_pwm_u16(r);
+    uint32_t v = ((uint32_t)pr << 16) | pl;
+
+    for (uint32_t i = 0; i < PWM_OSR; i++) {
+        g_pwm_dma_buf[i] = v;
+    }
+
+    dma_channel_transfer_from_buffer_now(
+        g_pwm_dma_chan,
+        g_pwm_dma_buf,
+        PWM_OSR
+    );
+
+    g_pwm_dma_active = true;
+}
+#endif
+
 int mii_audio_update(uint64_t current_cycle, uint64_t cycles_per_second)
 {
     if (!audio_state.initialized) {
@@ -314,6 +405,7 @@ int mii_audio_update(uint64_t current_cycle, uint64_t cycles_per_second)
     (void)cycles_per_second;
     
     int total_samples = 0;
+#if defined(FEATURE_AUDIO_I2S)
     audio_buffer_t *buffer;
     
     // Speaker volume scaling (sample_buffer values are -256 to +256)
@@ -367,11 +459,48 @@ int mii_audio_update(uint64_t current_cycle, uint64_t cycles_per_second)
         give_audio_buffer(audio_state.producer_pool, buffer);
         total_samples += sample_count;
     }
+#endif
+#if defined(FEATURE_AUDIO_PWM)
+    int sample_count = 1;
+
+    // Speaker volume scaling (тот же, что и в I2S)
+    const int32_t volume_scale = (SPEAKER_VOLUME * 128) / 256;
+    static int16_t last_sample = 0;
+
+    for (int i = 0; i < sample_count; i++) {
+        int32_t pending = (int32_t)(sample_buffer.write_index - sample_buffer.read_index);
+        if (pending < 0) pending += SAMPLE_BUFFER_SIZE;
+
+        int16_t contribution;
+        if (pending > 0) {
+            contribution = sample_buffer.samples[sample_buffer.read_index];
+            sample_buffer.samples[sample_buffer.read_index] = 0;
+            sample_buffer.read_index = (sample_buffer.read_index + 1) % SAMPLE_BUFFER_SIZE;
+            last_sample = contribution;
+        } else {
+            contribution = last_sample;
+        }
+
+        int32_t sample_value = contribution * volume_scale;
+        audio_state.speaker_sample = clamp_s16(sample_value);
+
+        int32_t left  = sample_value;
+        int32_t right = sample_value;
+
+        if (audio_state.mockingboard_enabled) {
+            left  += (audio_state.mockingboard_left  * MOCKINGBOARD_VOLUME) / 256;
+            right += (audio_state.mockingboard_right * MOCKINGBOARD_VOLUME) / 256;
+        }
+
+        pwm_submit_one_sample(clamp_s16(left), clamp_s16(right));
+    }
+#endif
     
     return total_samples;
 }
 
 // Test beep generator - plays a square wave beep
+#if defined(FEATURE_AUDIO_I2S)
 void mii_audio_test_beep(int frequency_hz, int duration_ms)
 {
     if (!audio_state.initialized) {
@@ -402,8 +531,15 @@ void mii_audio_test_beep(int frequency_hz, int duration_ms)
             phase += phase_inc;
         }
         
-        buffer->sample_count = count;
-        give_audio_buffer(audio_state.producer_pool, buffer);
+        #if defined(FEATURE_AUDIO_PWM)
+            pwm_submit_stereo_s16(samples, (uint32_t)count);
+            buffer->sample_count = count;
+        #endif
+        #if defined(FEATURE_AUDIO_I2S)
+            buffer->sample_count = count;
+            give_audio_buffer(audio_state.producer_pool, buffer);
+        #endif
         samples_played += count;
     }
 }
+#endif

@@ -1169,11 +1169,12 @@ mb_io_write( //
 struct mb_t *
 mb_alloc()
 {
-	mb_t *res = calloc(1, sizeof(mb_t));
+//	mb_t *res = calloc(1, sizeof(mb_t));
 //	if (res) {
 //		mb_io_reset(&res->last_clocks, res);
 //	}
-	return res;
+	static mb_t res = { 0 };
+	return &res;
 }
 
 void

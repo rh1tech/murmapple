@@ -2056,6 +2056,8 @@ mii_video_draw_floppy_indicator(uint8_t *hdmi_buffer,
 	}
 }
 
+bool ps2kbd_is_show_speed(void);
+
 // Scale Apple II video to HDMI framebuffer
 void
 mii_video_scale_to_hdmi(
@@ -2067,7 +2069,11 @@ mii_video_scale_to_hdmi(
 	
 	// Clear top and bottom borders (24 rows each) to black
 	// Top border: rows 0-23
-	memset(hdmi_buffer, 0, 320 * 24 / 2);
+	if (ps2kbd_is_show_speed()) {
+		memset(hdmi_buffer + 320 * 8 / 2, 0, 320 * 24 / 2 - 320 * 8 / 2);
+	} else {
+		memset(hdmi_buffer, 0, 320 * 24 / 2);
+	}
 	// Bottom border: rows 216-239
 	memset(hdmi_buffer + 320 * 216 / 2, 0, 320 * 24 / 2);
 	

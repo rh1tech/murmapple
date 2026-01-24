@@ -50,16 +50,16 @@ typedef struct sram_page_t {
 
 #if PICO_RP2040
 	#ifdef VIDEO_HDMI
-		#if FEATURE_AUDIO_I2S
-			#define RAM_PAGES_PER_POOL (232-80)
+		#if defined(FEATURE_AUDIO_I2S)
+			#define RAM_PAGES_PER_POOL (252)
 		#else
-			#define RAM_PAGES_PER_POOL (232)
+			#define RAM_PAGES_PER_POOL (252)
 		#endif
 	#else
-		#if FEATURE_AUDIO_I2S
+		#if defined(FEATURE_AUDIO_I2S)
 			#define RAM_PAGES_PER_POOL (242-66)
 		#else
-			#define RAM_PAGES_PER_POOL (242)
+			#define RAM_PAGES_PER_POOL (256)
 		#endif
 	#endif
 #else
@@ -99,7 +99,17 @@ typedef struct mii_bank_t {
 } mii_bank_t;
 
 void init_ram_pages_for(vram_t* v, uint8_t* raw, uint32_t raw_size);
+
+#if defined(PICO_RP2350) || (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL == MAX_PAGES_PER_POOL))
+inline static
+uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16) {
+    // all pages in memory, not required to calculate something
+	(vram);
+	return addr16 >> SHIFT_AS_DIV;
+}
+#else
 uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16);
+#endif
 
 inline static
 void pin_ram_pages_for(
@@ -107,9 +117,15 @@ void pin_ram_pages_for(
         const uint32_t start_addr,
         const uint16_t len_bytes)
 {
+#if defined(PICO_RP2350) || (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL == MAX_PAGES_PER_POOL))
+    // all pages in memory, not required to pin something
+	(v);
+	(start_addr);
+	(len_bytes);
+	return;
+#else
     if (!v)
         return;
-
     const uint32_t first = start_addr >> SHIFT_AS_DIV;
     const uint32_t last  = (len_bytes == 0)
         ? first - 1
@@ -128,7 +144,8 @@ void pin_ram_pages_for(
         } else {
             v->v_desc[vpage].pinned = 0;
         }
-    }	
+    }
+#endif	
 }
 
 inline static

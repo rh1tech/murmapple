@@ -74,6 +74,19 @@ mii_bank_access(
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #endif
 
+#if WITH_MB
+// in mii_mb.c
+bool
+_mii_mb_romspace_access(
+		struct mii_bank_t *bank,
+		void *param,
+		uint16_t addr,
+		uint8_t * byte,
+		bool write)
+;
+extern mii_t g_mii;
+#endif
+
 void
 mii_bank_write(
 		mii_bank_t *bank,
@@ -81,8 +94,18 @@ mii_bank_write(
 		const uint8_t *data,
 		uint16_t len)
 {
-    if (mii_bank_access(bank, addr, data, len, true))
-        return;
+#if WITH_BANK_ACCESS
+	if (mii_bank_access(bank, addr, data, len, true))
+		return;
+#elif WITH_MB
+    if (len == 1 && bank == &g_mii.bank[MII_BANK_CARD_ROM]) { // TODO: support for other len?
+		uint8_t off = addr & 0xFF;
+		if (off <= 0x1F) {
+			if (_mii_mb_romspace_access(bank, NULL, addr, (uint8_t*)data, true))
+				return;
+		}
+    }
+#endif
 	if (!bank->vram) {
 		uint32_t phy = bank->logical_mem_offset + addr - bank->base;
 		do {
@@ -112,8 +135,18 @@ mii_bank_read(
 		uint8_t *data,
 		uint16_t len)
 {
+#if WITH_BANK_ACCESS
 	if (mii_bank_access(bank, addr, data, len, false))
 		return;
+#elif WITH_MB
+    if (len == 1 && bank == &g_mii.bank[MII_BANK_CARD_ROM]) { // TODO: support for other len?
+		uint8_t off = addr & 0xFF;
+		if (off <= 0x1F) {
+			if (_mii_mb_romspace_access(bank, NULL, addr, data, false))
+				return;
+		}
+    }
+#endif
 	if (!bank->vram) {
 		uint32_t phy = bank->logical_mem_offset + addr - bank->base;
 		do {
@@ -205,6 +238,7 @@ void read_vram_block(vram_t* __restrict vram, const uint8_t vpage, const uint8_t
     gpio_put(PICO_DEFAULT_LED_PIN, false);
 }
 
+#if defined(PICO_RP2040) && (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL != MAX_PAGES_PER_POOL))
 uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16) {
     const register uint8_t vpage = addr16 >> SHIFT_AS_DIV; // page idx in Aplle II space
 	register vram_page_t* desc = &vram->v_desc[vpage];
@@ -232,6 +266,7 @@ uint8_t get_ram_page_for(vram_t* __restrict vram, const uint16_t addr16) {
 	read_vram_block(vram, vpage, lba_page);
 	return lba_page;
 }
+#endif
 
 void init_ram_pages_for(vram_t* v, uint8_t* raw, uint32_t raw_size) {
 	memset(raw, 0, raw_size);

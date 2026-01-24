@@ -11,6 +11,7 @@
 #include "disk_loader.h"
 #include "ff.h"
 #include "pico/stdlib.h"
+#include "../drivers/psram_allocator.h"
 
 // MII emulator headers
 #include "mii.h"
@@ -27,6 +28,10 @@
 extern uint8_t vram[2 * RAM_PAGES_PER_POOL * RAM_PAGE_SIZE];
 #define MAX_DISK_IMAGES (sizeof(vram) / sizeof(disk_entry_t))
 disk_entry_t* g_disk_list = (disk_entry_t*)vram;//[MAX_DISK_IMAGES];
+
+#if PICO_RP2350
+uint8_t drive0_cache[sizeof(bdsk_header_t) + BDSK_TRACKS * (sizeof(bdsk_track_desc_t) + BDSK_TRACK_DATA_SIZE)];
+#endif
 
 int g_disk_count = 0;
 loaded_disk_t g_loaded_disks[2] = {0};
@@ -118,6 +123,7 @@ static inline uint16_t disk_le16(const void *p) {
 
 static int
 disk_dump_current_track(
+    int drive,
     int track_id,
     mii_floppy_t *floppy,
     mii_dd_file_t *file,
@@ -176,10 +182,20 @@ disk_dump_current_track(
     if (fr != FR_OK || bw != BDSK_TRACK_DATA_SIZE)
         return -1;
 
+#if PICO_RP2350
+    if (!drive) { // drive #0
+        memcpy(drive0_cache + track_offset, &desc, sizeof(desc));
+        memcpy(drive0_cache + track_offset + sizeof(desc), floppy->curr_track_data, BDSK_TRACK_DATA_SIZE);
+    } else if (butter_psram_size()) { // drive #1
+        memcpy(PSRAM_DATA + track_offset, &desc, sizeof(desc));
+        memcpy(PSRAM_DATA + track_offset + sizeof(desc), floppy->curr_track_data, BDSK_TRACK_DATA_SIZE);
+    }
+#endif
+
     return 0;
 }
 
-static int disk_load_floppy_dsk_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *file, FIL *fp) {
+static int disk_load_floppy_dsk_from_fatfs(int drive, mii_floppy_t *floppy, mii_dd_file_t *file, FIL *fp) {
     FIL target;
     if (!disk_open_bdsk_image_file(&target, file->pathname, path, sizeof(path))) {
         return -1;
@@ -217,7 +233,7 @@ static int disk_load_floppy_dsk_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *
             // Volume number is 254, as in mii_dsk.c
             mii_floppy_dsk_render_sector(254, (uint8_t)track, (uint8_t)phys_sector, sector_buf, dst, track_data);
         }
-        if (disk_dump_current_track(track, floppy, file, &target) < 0)
+        if (disk_dump_current_track(drive, track, floppy, file, &target) < 0)
             goto fail;
     }
     f_close(&target);
@@ -227,7 +243,7 @@ fail:
     return -1;
 }
 
-static int disk_load_floppy_nib_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *file, FIL *fp) {
+static int disk_load_floppy_nib_from_fatfs(int drive, mii_floppy_t *floppy, mii_dd_file_t *file, FIL *fp) {
     FIL target;
     if (!disk_open_bdsk_image_file(&target, file->pathname, path, sizeof(path))) {
         return -1;
@@ -253,7 +269,7 @@ static int disk_load_floppy_nib_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *
             goto fail;
         }
         floppy->tracks[track].dirty = 0;
-        if (disk_dump_current_track(track, floppy, file, &target) < 0)
+        if (disk_dump_current_track(drive, track, floppy, file, &target) < 0)
             goto fail;
     }
     f_close(&target);
@@ -267,7 +283,7 @@ static bool disk_woz_chunk_id_is(const mii_woz_chunk_t *chunk, const char id[4])
     return chunk && memcmp((const void *)&chunk->id_le, id, 4) == 0;
 }
 
-static int disk_load_floppy_woz_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *file, FIL *fp) {
+static int disk_load_floppy_woz_from_fatfs(int drive, mii_floppy_t *floppy, mii_dd_file_t *file, FIL *fp) {
     FIL target;
     if (!disk_open_bdsk_image_file(&target, file->pathname, path, sizeof(path))) {
         return -1;
@@ -381,7 +397,7 @@ static int disk_load_floppy_woz_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *
 				goto fail;
 			floppy->tracks[i].virgin = 0;
 			floppy->tracks[i].bit_count = bit_count;
-            if (disk_dump_current_track(i, floppy, file, &target) < 0)
+            if (disk_dump_current_track(drive, i, floppy, file, &target) < 0)
                 goto fail;
 		}
         f_close(&target);
@@ -406,7 +422,7 @@ static int disk_load_floppy_woz_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *
         floppy->tracks[i].virgin = 0;
         memcpy(floppy->curr_track_data, entry, byte_count);
         floppy->tracks[i].bit_count = bit_count;
-        if (disk_dump_current_track(i, floppy, file, &target) < 0)
+        if (disk_dump_current_track(drive, i, floppy, file, &target) < 0)
             goto fail;
     }
     f_close(&target);
@@ -418,6 +434,7 @@ fail:
 
 static int
 disk_load_floppy_bdsk_track_from_fatfs(
+    int drive,
     mii_floppy_t   *floppy,
     mii_dd_file_t  *file,
     FIL            *fp,
@@ -425,14 +442,26 @@ disk_load_floppy_bdsk_track_from_fatfs(
 ) {
     if (track_id >= DSK_TRACKS)
         return -1;
-
+    
     /* --- compute track offset --- */
-    const uint32_t track_offset =
+    uint32_t track_offset =
         sizeof(bdsk_header_t) +
         track_id * (sizeof(bdsk_track_desc_t) + BDSK_TRACK_DATA_SIZE);
 
     /* --- read descriptor --- */
     bdsk_track_desc_t desc;
+#if PICO_RP2350
+    if (!drive) { // drive #0
+        memcpy(&desc, drive0_cache + track_offset, sizeof(bdsk_track_desc_t));
+        memcpy(floppy->curr_track_data, drive0_cache + track_offset + sizeof(bdsk_track_desc_t), BDSK_TRACK_DATA_SIZE);
+        goto ok;
+    }
+    if (butter_psram_size()) { // drive #1
+        memcpy(&desc, PSRAM_DATA + track_offset, sizeof(bdsk_track_desc_t));
+        memcpy(floppy->curr_track_data, PSRAM_DATA + track_offset + sizeof(bdsk_track_desc_t), BDSK_TRACK_DATA_SIZE);
+        goto ok;
+    }
+#endif
     FRESULT fr = f_lseek(fp, track_offset);
     if (fr != FR_OK)
         return -1;
@@ -440,9 +469,6 @@ disk_load_floppy_bdsk_track_from_fatfs(
     UINT br;
     fr = f_read(fp, &desc, sizeof(desc), &br);
     if (fr != FR_OK || br != sizeof(desc))
-        return -1;
-
-    if (desc.bit_count == 0 || desc.bit_count > BDSK_MAX_BITS)
         return -1;
 
     /* --- read track data --- */
@@ -454,7 +480,9 @@ disk_load_floppy_bdsk_track_from_fatfs(
     );
     if (fr != FR_OK || br != BDSK_TRACK_DATA_SIZE)
         return -1;
-
+ok:
+    if (desc.bit_count == 0 || desc.bit_count > BDSK_MAX_BITS)
+        return -1;
     /* --- update floppy state --- */
     mii_floppy_track_t *dst = &floppy->tracks[track_id];
     dst->bit_count = desc.bit_count;
@@ -464,27 +492,45 @@ disk_load_floppy_bdsk_track_from_fatfs(
     return 0;
 }
 
-static int disk_load_floppy_bdsk_from_fatfs(mii_floppy_t *floppy, mii_dd_file_t *file, FIL *fp) {
+static int disk_load_floppy_bdsk_from_fatfs(int drive, mii_floppy_t *floppy, mii_dd_file_t *file, FIL *fp) {
     /* --- read and validate header --- */
     bdsk_header_t hdr;
+
     FRESULT fr = f_lseek(fp, 0);
     if (fr != FR_OK)
         return -1;
 
     UINT br;
+#if PICO_RP2350
+    if (!drive) { // drive #0
+        fr = f_read(fp, drive0_cache, sizeof(drive0_cache), &br);
+        if (fr != FR_OK || br != sizeof(drive0_cache))
+            return -1;
+        memcpy(&hdr, drive0_cache, sizeof hdr);
+        goto ok;
+    }
+    if (butter_psram_size()) { // drive #1
+        fr = f_read(fp, PSRAM_DATA, sizeof(drive0_cache), &br);
+        if (fr != FR_OK || br != sizeof(drive0_cache))
+            return -1;
+        memcpy(&hdr, PSRAM_DATA, sizeof hdr);
+        goto ok;
+    }
+#endif
+
     fr = f_read(fp, &hdr, sizeof(hdr), &br);
     if (fr != FR_OK || br != sizeof(hdr))
         return -1;
-
+ok:
     if (memcmp(hdr.magic, BDSK_MAGIC, 4) != 0)
         return -1;
 
-    if (hdr.version != BDSK_VERSION)
+    if (hdr.version != BDSK_VERSION || hdr.tracks != BDSK_TRACKS)
         return -1;
 
     // all tracks validation loading
     for (int track = 0; track < hdr.tracks; track++) {
-        if (disk_load_floppy_bdsk_track_from_fatfs(floppy, file, fp, track) < 0) {
+        if (disk_load_floppy_bdsk_track_from_fatfs(drive, floppy, file, fp, track) < 0) {
             return -1;
         }
     }
@@ -800,16 +846,16 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
             case MII_DD_FILE_DSK:
             case MII_DD_FILE_DO:
             case MII_DD_FILE_PO:
-                res = disk_load_floppy_dsk_from_fatfs(floppy, file, &fp);
+                res = disk_load_floppy_dsk_from_fatfs(drive,floppy, file, &fp);
                 break;
             case MII_DD_FILE_NIB:
-                res = disk_load_floppy_nib_from_fatfs(floppy, file, &fp);
+                res = disk_load_floppy_nib_from_fatfs(drive, floppy, file, &fp);
                 break;
             case MII_DD_FILE_WOZ:
-                res = disk_load_floppy_woz_from_fatfs(floppy, file, &fp);
+                res = disk_load_floppy_woz_from_fatfs(drive, floppy, file, &fp);
                 break;
             case MII_DD_FILE_BDSK:
-                res = disk_load_floppy_bdsk_from_fatfs(floppy, file, &fp);
+                res = disk_load_floppy_bdsk_from_fatfs(drive, floppy, file, &fp);
                 break;
             default:
                 printf("%s: unsupported format %d\n", __func__, file->format);
@@ -820,14 +866,14 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
         // bdsk есть → НЕ КОНВЕРТИРУЕМ
         if (!disk_open_bdsk_image_file(&fp, file->pathname, path, sizeof(path)))
             return -1;
-        res = disk_load_floppy_bdsk_from_fatfs(floppy, file, &fp);        
+        res = disk_load_floppy_bdsk_from_fatfs(drive, floppy, file, &fp);
     }
     f_close(&fp);
     if (res >= 0) {
         if (!disk_open_bdsk_image_file(&fp, file->pathname, path, sizeof(path))) {
             return -1;
         }
-        res = disk_load_floppy_bdsk_track_from_fatfs(floppy, file, &fp, track_id);
+        res = disk_load_floppy_bdsk_track_from_fatfs(drive, floppy, file, &fp, track_id);
         f_close(&fp);
     }
 
@@ -869,7 +915,7 @@ void disk_reload_track(uint8_t drive, uint8_t track_id, mii_t* mii) {
     }
     mii_floppy_t *floppy = floppies[drive];
     mii_dd_file_t *file = &g_dd_files[drive];
-    res = disk_load_floppy_bdsk_track_from_fatfs(floppy, file, &fp, track_id);
+    res = disk_load_floppy_bdsk_track_from_fatfs(drive, floppy, file, &fp, track_id);
     f_close(&fp);
 
     if (res < 0) {
@@ -879,6 +925,7 @@ void disk_reload_track(uint8_t drive, uint8_t track_id, mii_t* mii) {
 
 static int
 disk_write_floppy_bdsk_track_to_fatfs(
+    int drive,
     mii_floppy_t   *floppy,
     mii_dd_file_t  *file,
     FIL            *fp,
@@ -892,7 +939,7 @@ disk_write_floppy_bdsk_track_to_fatfs(
     if (!src->dirty)
         return 0;
 
-    if (disk_dump_current_track(track_id, floppy, file, fp) < 0)
+    if (disk_dump_current_track(drive, track_id, floppy, file, fp) < 0)
         return -1;
 
     if (f_sync(fp) != FR_OK)
@@ -946,7 +993,7 @@ void disk_write_track(uint8_t drive, uint8_t track_id, mii_t* mii) {
     }
     mii_floppy_t *floppy = floppies[drive];
     mii_dd_file_t *file = &g_dd_files[drive];
-    res = disk_write_floppy_bdsk_track_to_fatfs(floppy, file, &fp, track_id);
+    res = disk_write_floppy_bdsk_track_to_fatfs(drive, floppy, file, &fp, track_id);
     f_close(&fp);
 
     if (res < 0) {

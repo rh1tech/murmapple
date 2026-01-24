@@ -16,6 +16,8 @@ cmake_minimum_required(VERSION 3.13)
 
 set(BUILD_NAME "murmapple")
 
+set(BUILD_VERSION "RC20")
+
 # Set board to Pico 2 (RP2350)
 set(PICO_BOARD pico2 CACHE STRING "Board type")
 
@@ -23,9 +25,8 @@ set(PICO_BOARD pico2 CACHE STRING "Board type")
 set(BOARD_VARIANT "M2" CACHE STRING "Board variant: M1 or M2")
 
 # CPU overclock configuration (252, 378, 504 MHz)
-set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
+set(CPU_SPEED "504" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
-# Video output configuration (HDMI or VGA)
 set(VIDEO_TYPE "HDMI" CACHE STRING "Video output: HDMI or VGA")
 
 if(VIDEO_TYPE STREQUAL "HDMI")
@@ -35,14 +36,19 @@ elseif(VIDEO_TYPE STREQUAL "VGA")
 endif()
 
 # Audio output configuration (I2S or PWM)
-set(AUDIO_TYPE "I2S" CACHE STRING "Audio output: I2S or PWM")
+set(AUDIO_TYPE "PWM" CACHE STRING "Audio output: I2S or PWM")
+
+#set(PWM_BEEPER_ONLY ON CACHE STRING "for RP2040 reduced RAM mode")
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 # Leave unset for no-PSRAM builds
-#set(PSRAM_SPEED "133" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
+if(PICO_BOARD STREQUAL "pico2")
+    set(PSRAM_SPEED "84" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
+endif()
 
 # MOS2 support (generate .m1p2 or m2p2 for Murmulator OS instead of .uf2)
 option(MOS2 "Build for Murmulator OS (m1p2/m2p2 format)" OFF)
+#set(MOS2 ON)
 
 # CPU voltage selection based on speed
 if(CPU_SPEED GREATER_EQUAL 504)
@@ -90,6 +96,41 @@ endif()
 
 set(OUTPUT_DIR "${CMAKE_SOURCE_DIR}/bin/${CMAKE_BUILD_TYPE}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_DIR}")
+
+IF(BOARD_VARIANT STREQUAL "M2")
+    if (PICO_BOARD STREQUAL "pico")
+        SET(BUILD_NAME "m2p1-${BUILD_NAME}")
+    else()
+        SET(BUILD_NAME "m2p2-${BUILD_NAME}")
+    endif()
+ELSE()
+    if (PICO_BOARD STREQUAL "pico")
+        SET(BUILD_NAME "m1p1-${BUILD_NAME}")
+    else()
+        SET(BUILD_NAME "m1p2-${BUILD_NAME}")
+    endif()
+endif ()
+
+IF(VIDEO_VGA)
+    SET(BUILD_NAME "${BUILD_NAME}-VGA")
+endif ()
+IF(VIDEO_HDMI)
+    SET(BUILD_NAME "${BUILD_NAME}-HDMI")
+endif ()
+
+SET(BUILD_NAME "${BUILD_NAME}-${CPU_SPEED}MHz")
+
+if (PICO_BOARD STREQUAL "pico2")
+    if (PSRAM_SPEED)
+        SET(BUILD_NAME "${BUILD_NAME}-P${PSRAM_SPEED}")
+    endif ()
+endif ()
+
+if (AUDIO_TYPE STREQUAL "PWM")
+    SET(BUILD_NAME "${BUILD_NAME}-PWM-${BUILD_VERSION}")
+else()
+    SET(BUILD_NAME "${BUILD_NAME}-I2S-${BUILD_VERSION}")
+endif ()
 
 if (MOS2)
     IF(BOARD_VARIANT STREQUAL "M2")
@@ -184,7 +225,10 @@ add_executable(${BUILD_NAME}
     # Audio support
     src/mii_audio_i2s.c
     # Note: mii_speaker.c is excluded - stub provided in main.c for RP2350
-    src/mockingboard.c
+    src/mii_audio.c
+#mockingboard
+#    src/mii_mb.c
+#    src/mockingboard.c
 )
 
 if (PICO_BOARD STREQUAL "pico")
@@ -215,7 +259,27 @@ target_compile_definitions(${BUILD_NAME} PRIVATE
     CPU_VOLTAGE=${CPU_VOLTAGE}
     MII_65C02_DIRECT_ACCESS=1
     MII_RP2350=1
+    # I2S Audio configuration
+    # NOTE: HDMI uses PIO1, PS/2 uses PIO0 SM0 (claimed dynamically)
+    # So I2S uses PIO0 SM2 (claimed statically before PS/2 init)
+    PICO_AUDIO_I2S_PIO=0
+    PICO_AUDIO_I2S_STATE_MACHINE=2
+    PICO_AUDIO_I2S_DMA_IRQ=1
+    PICO_AUDIO_I2S_DMA_CHANNEL=10
+    PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
+    PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
 )
+if (PWM_BEEPER_ONLY) # reduce RAM usage
+    target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_PWM_BEEPER=1)
+endif()
+
+if (PICO_BOARD STREQUAL "pico2")
+    if (PSRAM_SPEED)
+        target_compile_definitions(${BUILD_NAME} PRIVATE
+            PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
+        )
+    endif()
+endif()
 
 # Audio configuration based on AUDIO_TYPE
 if(AUDIO_TYPE STREQUAL "I2S")
