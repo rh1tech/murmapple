@@ -27,14 +27,24 @@ set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
 # CPU overclock configuration (252, 378, 504 MHz)
 set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
-set(VIDEO_HDMI ON)
-#set(VIDEO_VGA ON)
+set(VIDEO_TYPE "HDMI" CACHE STRING "Video output: HDMI or VGA")
+
+if(VIDEO_TYPE STREQUAL "HDMI")
+    set(VIDEO_HDMI ON)
+elseif(VIDEO_TYPE STREQUAL "VGA")
+    set(VIDEO_VGA ON)
+endif()
+
+# Audio output configuration (I2S or PWM)
+set(AUDIO_TYPE "I2S" CACHE STRING "Audio output: I2S or PWM")
 
 #set(PWM_BEEPER_ONLY ON CACHE STRING "for RP2040 reduced RAM mode")
-set(PWM_SOUND ON)
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
-set(PSRAM_SPEED "84" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
+# Leave unset for no-PSRAM builds
+if(BOARD_VARIANT STREQUAL "M1")
+    set(PSRAM_SPEED "84" CACHE STRING "PSRAM max frequency in MHz: 84, 100, 133, 166")
+endif()
 
 # MOS2 support (generate .m1p2 or m2p2 for Murmulator OS instead of .uf2)
 option(MOS2 "Build for Murmulator OS (m1p2/m2p2 format)" OFF)
@@ -110,11 +120,13 @@ endif ()
 
 SET(BUILD_NAME "${BUILD_NAME}-${CPU_SPEED}MHz")
 
-if (PSRAM_SPEED)
-    SET(BUILD_NAME "${BUILD_NAME}-P${PSRAM_SPEED}")
+if (PICO_BOARD STREQUAL "pico2")
+    if (PSRAM_SPEED)
+        SET(BUILD_NAME "${BUILD_NAME}-P${PSRAM_SPEED}")
+    endif ()
 endif ()
 
-if (PWM_SOUND)
+if (AUDIO_TYPE STREQUAL "PWM")
     SET(BUILD_NAME "${BUILD_NAME}-PWM-${BUILD_VERSION}")
 else()
     SET(BUILD_NAME "${BUILD_NAME}-I2S-${BUILD_VERSION}")
@@ -259,14 +271,6 @@ target_compile_definitions(${BUILD_NAME} PRIVATE
 )
 if (PWM_BEEPER_ONLY) # reduce RAM usage
     target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_PWM_BEEPER=1)
-else()
-    #generation type
-    target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_PCM=1)
-    if (PWM_SOUND)
-        target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_PWM=1)
-    else()
-        target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_I2S=1)
-    endif()
 endif()
 
 if (PICO_BOARD STREQUAL "pico2")
@@ -275,6 +279,26 @@ if (PICO_BOARD STREQUAL "pico2")
             PSRAM_MAX_FREQ_MHZ=${PSRAM_SPEED}
         )
     endif()
+endif()
+
+# Audio configuration based on AUDIO_TYPE
+if(AUDIO_TYPE STREQUAL "I2S")
+    target_compile_definitions(${BUILD_NAME} PRIVATE
+        # I2S Audio configuration
+        # NOTE: HDMI uses PIO1, PS/2 uses PIO0 SM0 (claimed dynamically)
+        # So I2S uses PIO0 SM2 (claimed statically before PS/2 init)
+        PICO_AUDIO_I2S_PIO=0
+        PICO_AUDIO_I2S_STATE_MACHINE=2
+        PICO_AUDIO_I2S_DMA_IRQ=1
+        PICO_AUDIO_I2S_DMA_CHANNEL=10
+        PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
+        PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
+        FEATURE_AUDIO_I2S=1
+    )
+elseif(AUDIO_TYPE STREQUAL "PWM")
+    target_compile_definitions(${BUILD_NAME} PRIVATE
+        FEATURE_AUDIO_PWM=1
+    )
 endif()
 
 if (VIDEO_HDMI)

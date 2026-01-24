@@ -146,19 +146,6 @@ bool mii_audio_i2s_init(void)
     // Clear state
     memset(&audio_state, 0, sizeof(audio_state));
     
-#if defined(FEATURE_AUDIO_I2S)
-    // Create audio buffer pool
-    audio_state.producer_pool = audio_new_producer_pool(
-        &producer_format, 
-        MII_I2S_BUFFER_COUNT, 
-        MII_I2S_BUFFER_SAMPLES
-    );
-    
-    if (!audio_state.producer_pool) {
-        MII_DEBUG_PRINTF("mii_audio_i2s_init: failed to create producer pool\n");
-        return false;
-    }
-#endif
 #if defined(FEATURE_AUDIO_PWM)
     // PWM pins must be adjacent for single-slice stereo via CC
     gpio_set_function(PWM_RIGHT_PIN, GPIO_FUNC_PWM);
@@ -197,7 +184,20 @@ bool mii_audio_i2s_init(void)
         g_pwm_dma_count,
         false
     );
-#else
+#endif
+#if defined(FEATURE_AUDIO_I2S)
+    // Create audio buffer pool
+    audio_state.producer_pool = audio_new_producer_pool(
+        &producer_format, 
+        MII_I2S_BUFFER_COUNT, 
+        MII_I2S_BUFFER_SAMPLES
+    );
+    
+    if (!audio_state.producer_pool) {
+        MII_DEBUG_PRINTF("mii_audio_i2s_init: failed to create producer pool\n");
+        return false;
+    }
+
     // Configure I2S pins using PICO_AUDIO_I2S_* defines
     struct audio_i2s_config config = {
         .data_pin = PICO_AUDIO_I2S_DATA_PIN,
@@ -257,7 +257,7 @@ void mii_audio_i2s_shutdown(void)
         return;
     }
     
-#if !defined(FEATURE_AUDIO_PWM)
+#if defined(FEATURE_AUDIO_I2S)
     audio_i2s_set_enabled(false);
 #endif
     audio_state.initialized = false;
@@ -534,12 +534,11 @@ void mii_audio_test_beep(int frequency_hz, int duration_ms)
         #if defined(FEATURE_AUDIO_PWM)
             pwm_submit_stereo_s16(samples, (uint32_t)count);
             buffer->sample_count = count;
-            // не отдаём в pool
-        #else
-            buffer->sample_count = count;
-            give_audio_buffer(...);
         #endif
-        give_audio_buffer(audio_state.producer_pool, buffer);
+        #if defined(FEATURE_AUDIO_I2S)
+            buffer->sample_count = count;
+            give_audio_buffer(audio_state.producer_pool, buffer);
+        #endif
         samples_played += count;
     }
 }

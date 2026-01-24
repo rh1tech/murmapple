@@ -51,7 +51,7 @@ typedef struct sram_page_t {
 #if PICO_RP2040
 	#ifdef VIDEO_HDMI
 		#if defined(FEATURE_AUDIO_I2S)
-			#define RAM_PAGES_PER_POOL (232-80)
+			#define RAM_PAGES_PER_POOL (252)
 		#else
 			#define RAM_PAGES_PER_POOL (252)
 		#endif
