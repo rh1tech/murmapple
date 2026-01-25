@@ -634,16 +634,10 @@ disk_select_name(const FILINFO *fno)
 {
     size_t fname_len = strlen(fno->fname);
 #if FF_USE_LFN
-    if (fname_len < MAX_FILENAME_LEN) {
+    if (fname_len < (MAX_FILENAME_LEN - 5)) { // for ".bdsk" space
         return fno->fname;
     }
-
-    if (fno->altname[0]) {
-        size_t alt_len = strlen(fno->altname);
-        if (alt_len < MAX_FILENAME_LEN) {
-            return fno->altname;
-        }
-    }
+    return fno->altname;
     /* fallback: LFN will be truncated by caller */
     return fno->fname;
 #else
