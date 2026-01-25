@@ -629,6 +629,29 @@ static int disk_entry_cmp_name(const void *a, const void *b) {
     return strcmp(da->filename, db->filename);
 }
 
+static const char *
+disk_select_name(const FILINFO *fno)
+{
+    size_t fname_len = strlen(fno->fname);
+#if FF_USE_LFN
+    if (fname_len < MAX_FILENAME_LEN) {
+        return fno->fname;
+    }
+
+    if (fno->altname[0]) {
+        size_t alt_len = strlen(fno->altname);
+        if (alt_len < MAX_FILENAME_LEN) {
+            return fno->altname;
+        }
+    }
+    /* fallback: LFN will be truncated by caller */
+    return fno->fname;
+#else
+    /* No LFN at all */
+    return fno->fname;
+#endif
+}
+
 // Scan directory for disk images and directories
 int disk_scan_directory(const char* __restrict path) {
     if (!sd_mounted) {
@@ -669,14 +692,10 @@ int disk_scan_directory(const char* __restrict path) {
         if (type == DISK_TYPE_UNKNOWN) continue;
         
         // Add to list
-        strncpy(g_disk_list[g_disk_count].filename, fno.fname, MAX_FILENAME_LEN - 1);
+        strncpy(g_disk_list[g_disk_count].filename, disk_select_name(&fno), MAX_FILENAME_LEN - 1);
         g_disk_list[g_disk_count].filename[MAX_FILENAME_LEN - 1] = '\0';
         g_disk_list[g_disk_count].size = fno.fsize;
         g_disk_list[g_disk_count].type = type;
-        
-        printf("  [%d] %s (%lu bytes, type %d)\n", 
-               g_disk_count, fno.fname, fno.fsize, type);
-        
         g_disk_count++;
     }
     
