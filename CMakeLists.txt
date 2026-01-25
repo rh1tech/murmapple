@@ -19,15 +19,15 @@ set(BUILD_NAME "murmapple")
 set(BUILD_VERSION "RC20")
 
 # Set board to Pico 2 (RP2350)
-set(PICO_BOARD pico2 CACHE STRING "Board type")
+set(PICO_BOARD pico CACHE STRING "Board type")
 
 # Board configuration variant (M1, M2)
-set(BOARD_VARIANT "M2" CACHE STRING "Board variant: M1 or M2")
+set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
 
 # CPU overclock configuration (252, 378, 504 MHz)
-set(CPU_SPEED "504" CACHE STRING "CPU clock in MHz: 252, 378, 504")
+set(CPU_SPEED "378" CACHE STRING "CPU clock in MHz: 252, 378, 504")
 
-set(VIDEO_TYPE "HDMI" CACHE STRING "Video output: HDMI or VGA")
+set(VIDEO_TYPE "VGA" CACHE STRING "Video output: HDMI or VGA")
 
 if(VIDEO_TYPE STREQUAL "HDMI")
     set(VIDEO_HDMI ON)
@@ -35,10 +35,10 @@ elseif(VIDEO_TYPE STREQUAL "VGA")
     set(VIDEO_VGA ON)
 endif()
 
-# Audio output configuration (I2S or PWM)
-set(AUDIO_TYPE "PWM" CACHE STRING "Audio output: I2S or PWM")
+# Audio output configuration (I2S, PWM or PWME)
+set(AUDIO_TYPE "PWM" CACHE STRING "Audio output: I2S, PWM or PWME")
 
-#set(PWM_BEEPER_ONLY ON CACHE STRING "for RP2040 reduced RAM mode")
+set(PWM_BEEPER_ONLY ON CACHE STRING "for RP2040 reduced RAM mode")
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 # Leave unset for no-PSRAM builds
@@ -126,11 +126,7 @@ if (PICO_BOARD STREQUAL "pico2")
     endif ()
 endif ()
 
-if (AUDIO_TYPE STREQUAL "PWM")
-    SET(BUILD_NAME "${BUILD_NAME}-PWM-${BUILD_VERSION}")
-else()
-    SET(BUILD_NAME "${BUILD_NAME}-I2S-${BUILD_VERSION}")
-endif ()
+SET(BUILD_NAME "${BUILD_NAME}-${AUDIO_TYPE}-${BUILD_VERSION}")
 
 if (MOS2)
     IF(BOARD_VARIANT STREQUAL "M2")
@@ -269,9 +265,6 @@ target_compile_definitions(${BUILD_NAME} PRIVATE
     PICO_AUDIO_I2S_DATA_PIN=${I2S_DATA_PIN}
     PICO_AUDIO_I2S_CLOCK_PIN_BASE=${I2S_CLOCK_PIN_BASE}
 )
-if (PWM_BEEPER_ONLY) # reduce RAM usage
-    target_compile_definitions(${BUILD_NAME} PRIVATE FEATURE_AUDIO_PWM_BEEPER=1)
-endif()
 
 if (PICO_BOARD STREQUAL "pico2")
     if (PSRAM_SPEED)
@@ -298,6 +291,10 @@ if(AUDIO_TYPE STREQUAL "I2S")
 elseif(AUDIO_TYPE STREQUAL "PWM")
     target_compile_definitions(${BUILD_NAME} PRIVATE
         FEATURE_AUDIO_PWM=1
+    )
+elseif(AUDIO_TYPE STREQUAL "PWME")
+    target_compile_definitions(${BUILD_NAME} PRIVATE
+        FEATURE_AUDIO_PWM_BEEPER=1
     )
 endif()
 
