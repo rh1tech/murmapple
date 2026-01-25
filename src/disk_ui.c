@@ -398,6 +398,9 @@ static bool disk_ui_delete_selected_file(void)
     disk_entry_t *e = &g_disk_list[idx];
     if (e->type == DIR_TYPE)
         return false; // директории не удаляем
+    /* --- сохранить текущую позицию --- */
+    int old_selected = selected_file;
+    int old_scroll   = scroll_offset;
     char path[256];
     snprintf(path, sizeof(path), "%s/%s", selected_dir, e->filename);
     FRESULT fr = f_unlink(path);
@@ -405,17 +408,35 @@ static bool disk_ui_delete_selected_file(void)
         printf("Delete failed: %s (%d)\n", path, fr);
         return false;
     }
-    // пересканировать каталог
+    /* --- пересканировать --- */
     int count = disk_scan_directory(selected_dir);
     if (count < 0)
         count = -count;
-    // скорректировать selection
+
     int total = count + (has_parent_dir ? 1 : 0);
-    if (selected_file >= total && total > 0)
-        selected_file = total - 1;
-    if (selected_file < 0)
+
+    /* --- восстановить selected_file --- */
+    if (total == 0) {
         selected_file = 0;
-    scroll_offset = 0;
+        scroll_offset = 0;
+    } else {
+        if (old_selected >= total)
+            selected_file = total - 1;
+        else
+            selected_file = old_selected;
+
+        /* --- восстановить scroll_offset так, чтобы выделение было видно --- */
+        scroll_offset = old_scroll;
+
+        if (selected_file < scroll_offset)
+            scroll_offset = selected_file;
+        else if (selected_file >= scroll_offset + MAX_VISIBLE)
+            scroll_offset = selected_file - MAX_VISIBLE + 1;
+
+        if (scroll_offset < 0)
+            scroll_offset = 0;
+    }
+
     ui_dirty = true;
     return true;
 }
