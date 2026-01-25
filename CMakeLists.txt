@@ -36,9 +36,7 @@ elseif(VIDEO_TYPE STREQUAL "VGA")
 endif()
 
 # Audio output configuration (I2S, PWM or PWME)
-set(AUDIO_TYPE "PWM" CACHE STRING "Audio output: I2S, PWM or PWME")
-
-set(PWM_BEEPER_ONLY ON CACHE STRING "for RP2040 reduced RAM mode")
+set(AUDIO_TYPE "I2S" CACHE STRING "Audio output: I2S, PWM or PWME")
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 # Leave unset for no-PSRAM builds
