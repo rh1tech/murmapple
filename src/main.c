@@ -46,6 +46,10 @@
 
 #define CPU_STAT_WINDOW 16
 
+// Flag to indicate emulator is ready
+static volatile bool g_emulator_ready = false;
+static volatile bool video_core_iteration_in_progress = false;
+
 typedef struct {
     uint32_t cycles;
     uint32_t time_us;
@@ -236,6 +240,9 @@ static void process_keyboard(void) {
         if (pressed) {
             // Check for F11 - disk selector toggle
             if (key == KEY_F11) {
+                do {
+                    __dmb();
+                } while(video_core_iteration_in_progress);
                 disk_ui_toggle();
                 continue;
             }
@@ -269,6 +276,9 @@ static void process_keyboard(void) {
         if (pressed) {
             // Check for F11 - disk selector toggle
             if (key == KEY_F11) {
+                do {
+                    __dmb();
+                } while(video_core_iteration_in_progress);
                 disk_ui_toggle();
                 continue;
             }
@@ -333,10 +343,8 @@ void clear_held_key(void) {
     key_hold_frames = 0;
 }
 
-// Flag to indicate emulator is ready
-static volatile bool g_emulator_ready = false;
-
 static __not_in_flash() void video_core_iteration(void) {
+    video_core_iteration_in_progress = true;
     mii_video_scale_to_hdmi(&g_mii.video, graphics_get_buffer());
     if (ps2kbd_is_show_speed()) {
         uint32_t khz, percent;
@@ -346,6 +354,7 @@ static __not_in_flash() void video_core_iteration(void) {
         memset(graphics_get_buffer(), 0, 320 * 8 / 2);
         draw_string(graphics_get_buffer(), 320, 0, 8, tmp, 15);
     }
+    video_core_iteration_in_progress = false;
 }
 
 #if defined(PICO_RP2350) || (defined(RAM_PAGES_PER_POOL) && defined(MAX_PAGES_PER_POOL) && (RAM_PAGES_PER_POOL == MAX_PAGES_PER_POOL))
@@ -848,6 +857,9 @@ int main() {
             
             // SELECT button toggles disk UI (like F11)
             if (gamepad_pressed & DPAD_SELECT) {
+                do {
+                    __dmb();
+                } while(video_core_iteration_in_progress);
                 disk_ui_toggle();
             }
             
@@ -996,8 +1008,9 @@ int main() {
             MII_DEBUG_PRINTF("=== DISK UI CLOSED - MONITORING ===\n");
         }
         disk_ui_was_visible = disk_ui_now;
-      
-        if (disk_ui_now) {
+
+        __dmb();
+        if (disk_ui_now && !video_core_iteration_in_progress) {
             disk_ui_render(graphics_get_buffer(), HDMI_WIDTH, HDMI_HEIGHT);
         } else {
             // Run CPU for one frame worth of cycles.
