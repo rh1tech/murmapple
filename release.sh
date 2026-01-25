@@ -160,8 +160,8 @@ build_variant() {
     echo -e "  Board: $BOARD | Video: $VIDEO | Audio: $AUDIO | PSRAM: ${PSRAM:-none} | MOS2: $MOS2"
 
     # Clean and create build directory
-    rm -rf build
-    mkdir build
+    rm -rf build bin/Release
+    mkdir -p build bin/Release
     cd build
 
     # Build cmake arguments
@@ -178,16 +178,17 @@ build_variant() {
     if cmake $CMAKE_ARGS .. > /dev/null 2>&1; then
         # Build
         if make -j8 > /dev/null 2>&1; then
-            # Find and copy output file
-            local SRC_FILE="$SCRIPT_DIR/bin/Release/murmapple.${EXT}"
+            # Find and copy output file (CMake creates dynamic names like m1p2-murmapple-HDMI-252MHz-...)
+            local SRC_FILE=""
             if [[ "$MOS2" == "ON" ]]; then
-                # MOS2 builds have special naming
-                local MOS2_EXT="m1p2"
-                [[ "$BOARD" == "M2" ]] && MOS2_EXT="m2p2"
-                SRC_FILE="$SCRIPT_DIR/bin/Release/murmapple.${MOS2_EXT}"
+                # MOS2 builds produce .m1p2 or .m2p2 files
+                SRC_FILE=$(find "$SCRIPT_DIR/bin/Release" -maxdepth 1 -name "*.${EXT}" -type f 2>/dev/null | head -1)
+            else
+                # UF2 builds
+                SRC_FILE=$(find "$SCRIPT_DIR/bin/Release" -maxdepth 1 -name "*.uf2" -type f 2>/dev/null | head -1)
             fi
 
-            if [[ -f "$SRC_FILE" ]]; then
+            if [[ -n "$SRC_FILE" && -f "$SRC_FILE" ]]; then
                 cp "$SRC_FILE" "$RELEASE_DIR/$OUTPUT_NAME"
                 echo -e "  ${GREEN}✓ Success${NC} → release/$OUTPUT_NAME"
             else
