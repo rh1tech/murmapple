@@ -383,6 +383,42 @@ void disk_ui_show_loading(void) {
 static bool read_only = true;
 static bool bdsk_exists = false;
 static bool bdsk_recreate = false;
+#define has_parent_dir  (strcmp(selected_dir, "/") != 0)
+
+static bool disk_ui_delete_selected_file(void)
+{
+    if (ui_state != DISK_UI_SELECT_FILE)
+        return false;
+    int base = has_parent_dir ? 1 : 0;
+    if (base && selected_file == 0)
+        return false; // ".."
+    int idx = selected_file - base;
+    if (idx < 0 || idx >= g_disk_count)
+        return false;
+    disk_entry_t *e = &g_disk_list[idx];
+    if (e->type == DIR_TYPE)
+        return false; // директории не удаляем
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s", selected_dir, e->filename);
+    FRESULT fr = f_unlink(path);
+    if (fr != FR_OK) {
+        printf("Delete failed: %s (%d)\n", path, fr);
+        return false;
+    }
+    // пересканировать каталог
+    int count = disk_scan_directory(selected_dir);
+    if (count < 0)
+        count = -count;
+    // скорректировать selection
+    int total = count + (has_parent_dir ? 1 : 0);
+    if (selected_file >= total && total > 0)
+        selected_file = total - 1;
+    if (selected_file < 0)
+        selected_file = 0;
+    scroll_offset = 0;
+    ui_dirty = true;
+    return true;
+}
 
 // Handle loading complete - mount disk and perform action
 static void handle_disk_loaded(void) {
@@ -430,8 +466,6 @@ static void handle_disk_loaded(void) {
         MII_DEBUG_PRINTF("Disk UI: warning - no emulator reference, disk not mounted\n");
     }
 }
-
-#define has_parent_dir  (strcmp(selected_dir, "/") != 0)
 
 bool disk_ui_handle_key(uint8_t key) {
     if (ui_state == DISK_UI_HIDDEN || ui_state == DISK_UI_LOADING) {
@@ -664,9 +698,12 @@ bool disk_ui_handle_key(uint8_t key) {
                 bdsk_recreate = !bdsk_recreate;
                 ui_dirty = true;
                 handled = true;
+                break;
             }
-            break;
-
+            if (ui_state == DISK_UI_SELECT_FILE) {
+                handled = disk_ui_delete_selected_file();
+                break;
+            }
         case '1':
             if (ui_state == DISK_UI_SELECT_DRIVE) {
                 selected_drive = 0;
