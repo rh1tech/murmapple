@@ -488,6 +488,34 @@ static void handle_disk_loaded(void) {
     }
 }
 
+static bool disk_ui_select_loaded_file(int drive)
+{
+    if (!g_loaded_disks[drive].loaded)
+        return false;
+
+    const char *name = g_loaded_disks[drive].filename;
+    int base = has_parent_dir ? 1 : 0;
+
+    for (int i = 0; i < g_disk_count; i++) {
+        if (strcmp(g_disk_list[i].filename, name) == 0) {
+            selected_file = i + base;
+
+            /* сделать элемент видимым */
+            if (selected_file < scroll_offset)
+                scroll_offset = selected_file;
+            else if (selected_file >= scroll_offset + MAX_VISIBLE)
+                scroll_offset = selected_file - MAX_VISIBLE + 1;
+
+            if (scroll_offset < 0)
+                scroll_offset = 0;
+
+            return true;
+        }
+    }
+
+    return false; // файл не найден
+}
+
 bool disk_ui_handle_key(uint8_t key) {
     if (ui_state == DISK_UI_HIDDEN || ui_state == DISK_UI_LOADING) {
         return false;
@@ -516,8 +544,11 @@ bool disk_ui_handle_key(uint8_t key) {
             if (ui_state == DISK_UI_SELECT_DRIVE) {
                 // Proceed to file selection
                 ui_state = DISK_UI_SELECT_FILE;
-                selected_file = 0;
-                scroll_offset = 0;
+                /* попытаться перейти к уже загруженному диску */
+                if (!disk_ui_select_loaded_file(selected_drive)) {
+                    selected_file = 0;
+                    scroll_offset = 0;
+                }
                 ui_dirty = true;
                 MII_DEBUG_PRINTF("Disk UI: selecting file for drive %d\n", selected_drive + 1);
                 handled = true;
@@ -715,6 +746,18 @@ bool disk_ui_handle_key(uint8_t key) {
             break;
 
         case 'D':  // D = toggle bdsk_recreate
+            if (ui_state == DISK_UI_SELECT_DRIVE) {
+                int drive = selected_drive;
+                if (g_loaded_disks[drive].loaded) {
+                    // eject from emulator (flush + clear floppy)
+                    disk_eject_from_emulator(drive, g_mii, g_disk2_slot);
+                    // clear loader state
+                    disk_unload_image(drive);
+                    ui_dirty = true;
+                }
+                handled = true;
+                break;
+            }
             if (ui_state == DISK_UI_SELECT_ACTION) {
                 bdsk_recreate = !bdsk_recreate;
                 ui_dirty = true;
@@ -827,7 +870,7 @@ void disk_ui_render(uint8_t *framebuffer, int width, int height) {
         // Instructions below dialog border - clear area first
         int footer_y = UI_Y + UI_HEIGHT + 4;
         draw_rect(framebuffer, width, UI_X, footer_y, UI_WIDTH, LINE_HEIGHT, COLOR_BG);
-        draw_string(framebuffer, width, content_x, footer_y, "[1/2] Select  [Enter] OK  [Esc] Cancel", COLOR_TEXT);
+        draw_string(framebuffer, width, content_x, footer_y, "[1/2] Select  [Enter] OK  [Esc] Cancel [D]el", COLOR_TEXT);
         
     } else if (state == DISK_UI_SELECT_FILE) {
         // File selection
