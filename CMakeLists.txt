@@ -19,7 +19,7 @@ set(BUILD_NAME "murmapple")
 set(BUILD_VERSION "RC21")
 
 # Set board to Pico 2 (RP2350)
-set(PICO_BOARD pico CACHE STRING "Board type")
+set(PICO_BOARD pico2 CACHE STRING "Board type")
 
 # Board configuration variant (M1, M2)
 set(BOARD_VARIANT "M1" CACHE STRING "Board variant: M1 or M2")
@@ -216,6 +216,9 @@ add_executable(${BUILD_NAME}
     src/mii_woz.c
     src/mii_vcd_stub.c
     src/mii_rom_disk2_p5.c
+
+    src/mii_smartport.c
+
     # Audio support
     src/mii_audio_i2s.c
     # Note: mii_speaker.c is excluded - stub provided in main.c for RP2350

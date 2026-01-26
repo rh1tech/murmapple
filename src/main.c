@@ -650,6 +650,8 @@ int main() {
         MII_DEBUG_PRINTF("Slot 2 signature bytes: $C205=%02X, $C207=%02X\n",
                mii_bank_peek(card_rom, 0xC205), mii_bank_peek(card_rom, 0xC207));
     }
+    slot_res = mii_slot_drv_register(&g_mii, 5, "smartport");
+    // TODO: log
     
     // Initialize disk UI with emulator pointer (slot 6 is standard for Disk II)
     disk_ui_init_with_emulator(&g_mii, 6);
@@ -657,7 +659,7 @@ int main() {
     // Load Apple IIe ROM (16K at $C000-$FFFF)
     MII_DEBUG_PRINTF("Loading Apple IIe ROM...\n");
     load_rom(&g_mii, mii_rom_iiee, 16384, 0xC000);
-    
+
     // Debug: Check reset vector in ROM
     mii_bank_t *rom_bank = &g_mii.bank[MII_BANK_ROM];
     uint8_t rst_lo = mii_bank_peek(rom_bank, 0xFFFC);
