@@ -818,7 +818,7 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
     
     // Set up the mii_dd_file_t structure (no file->map backing on RP2350)
     memset(file, 0, sizeof(*file));
-    file->pathname = disk->filename;  // Just point to our filename
+    strncpy(file->pathname, disk->filename, sizeof(file->pathname));  // Just point to our filename
     file->format = disk_type_to_mii_format(disk->type, disk->filename);
     file->read_only = read_only;  // Read-only: no in-memory backing for writes
     file->size = disk->size;

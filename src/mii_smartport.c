@@ -323,7 +323,7 @@ _mii_sm_init(
 		asprintf((char **)&dd->name, "SmartPort S:%d D:%d",
 				dd->slot_id, dd->drive);
 		if(i == 0) { // W/A
-			mii_dd_drive_load(dd, mii_dd_file_load(NULL, "/TODO", 0));
+			mii_dd_drive_load(dd, mii_dd_file_load(&mii->dd, "/apple/drive0.img", i));
 		}
 	}
 	mii_dd_register_drives(&mii->dd, c->drive, MII_SM_DRIVE_COUNT);
@@ -367,7 +367,7 @@ _mii_sm_command(
 			const char *filename = param;
 			mii_dd_file_t *file = NULL;
 			if (filename && *filename) {
-				file = mii_dd_file_load(&mii->dd, filename, 0);
+				file = mii_dd_file_load(&mii->dd, filename, drive);
 				if (!file)
 					return -1;
 			}

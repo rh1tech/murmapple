@@ -40,7 +40,7 @@ enum {
 // a disk image file (or chunck of ram, if ramdisk is used)
 typedef struct mii_dd_file_t {
 	struct mii_dd_file_t *next;
-	char * 			pathname;
+	char 			pathname[128];
 	uint8_t 		format;
 	uint8_t 		read_only;
 	uint32_t 		size;

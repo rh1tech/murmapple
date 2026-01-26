@@ -98,13 +98,15 @@ mii_dd_file_load(
 		const char *pathname,
 		uint16_t flags)
 {
+	if (flags >= 2) return 0;
 	FIL f;
-	f_open(&f, "/apple/drive0.img", FA_WRITE | FA_OPEN_ALWAYS);
-	f_lseek(&f, mii_dd_files[0].size);
+	strncpy(mii_dd_files[flags].pathname, pathname, sizeof(mii_dd_files[flags].pathname));
+	mii_dd_files[flags].read_only = false;
+	mii_dd_files[flags].size = 32L << 20; // W/A 32 MB
+	f_open(&f, pathname, FA_WRITE | FA_OPEN_ALWAYS);
+	f_lseek(&f, mii_dd_files[0].size - 1);
 	f_close(&f);
-	mii_dd_files[0].read_only = false;
-	mii_dd_files[0].size = 32L << 20; // 32 MB
-	return &mii_dd_files[0]; // TODO: depends on unit
+	return &mii_dd_files[flags];
 }
 
 mii_dd_file_t *
@@ -129,8 +131,9 @@ mii_dd_read(
     uint32_t blk,
     uint16_t blockcount)
 {
+	if (!dd->file || !dd->file->pathname) return -1;
 	FIL f;
-	if (FR_OK != f_open(&f, "/apple/drive0.img", FA_READ | FA_OPEN_ALWAYS)) return -1;
+	if (FR_OK != f_open(&f, dd->file->pathname, FA_READ | FA_OPEN_ALWAYS)) return -1;
 
     if (f_lseek(&f, 512 * blk) != FR_OK) goto err;
 
@@ -161,8 +164,9 @@ mii_dd_write(
     uint32_t blk,
     uint16_t blockcount)
 {
+	if (!dd->file || !dd->file->pathname) return -1;
 	FIL f;
-	if (FR_OK != f_open(&f, "/apple/drive0.img", FA_WRITE | FA_OPEN_ALWAYS)) return -1;
+	if (FR_OK != f_open(&f, dd->file->pathname, FA_WRITE | FA_OPEN_ALWAYS)) return -1;
 
     if (f_lseek(&f, 512 * blk) != FR_OK)
         goto err;
