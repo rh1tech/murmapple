@@ -16,6 +16,12 @@
 #include "mii_bank.h"
 #include "mii_dd.h"
 #include "debug_log.h"
+#include "disk_loader.h"
+#include "../drivers/psram_allocator.h"
+
+#if PICO_RP2350
+#define HDD_CACHE_BASE (PSRAM_DATA + BDSK_BYTES)
+#endif
 
 void
 mii_dd_system_init(
@@ -90,7 +96,11 @@ mii_dd_file_dispose(
 	// free(file);  // Don't free - we use static allocation
 }
 
+#define PRODOS_MAX_BLOCKS 65535
+#define PRODOS_BLOCK_SIZE 512
+
 static mii_dd_file_t mii_dd_files[2] = { 0 };
+static FIL mii_ff_files[2] = { 0 };
 
 mii_dd_file_t *
 mii_dd_file_load(
@@ -99,13 +109,32 @@ mii_dd_file_load(
 		uint16_t flags)
 {
 	if (flags >= 2) return 0;
-	FIL f;
+	FIL* f = &mii_ff_files[flags];
+	f_close(f);
 	strncpy(mii_dd_files[flags].pathname, pathname, sizeof(mii_dd_files[flags].pathname));
-	mii_dd_files[flags].read_only = false;
-	mii_dd_files[flags].size = 32L << 20; // W/A 32 MB
-	f_open(&f, pathname, FA_WRITE | FA_OPEN_ALWAYS);
-	f_lseek(&f, mii_dd_files[0].size - 1);
-	f_close(&f);
+
+	if (FR_OK == f_open(f, pathname, FA_READ | FA_WRITE)) {
+		mii_dd_files[flags].read_only = false;
+		mii_dd_files[flags].size = f_size(f);
+		if (mii_dd_files[flags].size > (PRODOS_MAX_BLOCKS * PRODOS_BLOCK_SIZE)) {
+			mii_dd_files[flags].size = (PRODOS_MAX_BLOCKS * PRODOS_BLOCK_SIZE); // W/A ~32 MB
+		}
+	} else if(FR_OK == f_open(f, pathname, FA_READ)) {
+		mii_dd_files[flags].read_only = true;
+		mii_dd_files[flags].size = f_size(f);
+		if (mii_dd_files[flags].size > (PRODOS_MAX_BLOCKS * PRODOS_BLOCK_SIZE)) {
+			mii_dd_files[flags].size = (PRODOS_MAX_BLOCKS * PRODOS_BLOCK_SIZE); // W/A ~32 MB
+		}
+	} else {
+		mii_dd_files[flags].read_only = false;
+		mii_dd_files[flags].size = (PRODOS_MAX_BLOCKS * PRODOS_BLOCK_SIZE); // W/A ~32 MB
+		f_open(f, pathname, FA_WRITE | FA_OPEN_ALWAYS);
+		f_lseek(f, mii_dd_files[flags].size - 1);
+		UINT bw;
+		uint8_t zero = 0;
+		f_write(f, &zero, 1, &bw);
+	}
+	mii_dd_files[flags].format = flags; // reuse format and flags as drive no
 	return &mii_dd_files[flags];
 }
 
@@ -132,25 +161,22 @@ mii_dd_read(
     uint16_t blockcount)
 {
 	if (!dd->file || !dd->file->pathname) return -1;
-	FIL f;
-	if (FR_OK != f_open(&f, dd->file->pathname, FA_READ | FA_OPEN_ALWAYS)) return -1;
 
-    if (f_lseek(&f, 512 * blk) != FR_OK) goto err;
+	FIL* f = &mii_ff_files[dd->file->format];
+    if (f_lseek(f, 512 * blk) != FR_OK) goto err;
 
     uint8_t buf[512];
     UINT br = 0;
 
     for (uint16_t b = 0; b < blockcount; b++) {
-        if (f_read(&f, buf, 512, &br) != FR_OK || br != 512)
+        if (f_read(f, buf, 512, &br) != FR_OK || br != 512)
 			goto err;
         uint16_t base = addr + (uint16_t)(b * 512u);
         for (uint16_t i = 0; i < 512; i++)
             mii_bank_poke(bank, base + i, buf[i]);
     }
-	f_close(&f);
     return 0;
 err:
-	f_close(&f);
     return -1;
 }
 
@@ -165,10 +191,9 @@ mii_dd_write(
     uint16_t blockcount)
 {
 	if (!dd->file || !dd->file->pathname) return -1;
-	FIL f;
-	if (FR_OK != f_open(&f, dd->file->pathname, FA_WRITE | FA_OPEN_ALWAYS)) return -1;
+	FIL* f = &mii_ff_files[dd->file->format];
 
-    if (f_lseek(&f, 512 * blk) != FR_OK)
+    if (f_lseek(f, 512 * blk) != FR_OK)
         goto err;
 
     uint8_t buf[512];
@@ -177,13 +202,12 @@ mii_dd_write(
         uint16_t base = addr + (uint16_t)(b * 512u);
         for (uint16_t i = 0; i < 512; i++)
             buf[i] = mii_bank_peek(bank, base + i);
-        if (f_write(&f, buf, 512, &bw) != FR_OK || bw != 512)
+        if (f_write(f, buf, 512, &bw) != FR_OK || bw != 512)
 	        goto err;
     }
 
-	f_close(&f);
+	f_sync(f);
     return 0;
 err:
-	f_close(&f);
     return -1;
 }

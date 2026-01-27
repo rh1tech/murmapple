@@ -16,7 +16,7 @@ cmake_minimum_required(VERSION 3.13)
 
 set(BUILD_NAME "murmapple")
 
-set(BUILD_VERSION "RC22")
+set(BUILD_VERSION "RC23")
 
 # Set board to Pico 2 (RP2350)
 set(PICO_BOARD pico2 CACHE STRING "Board type")
@@ -36,7 +36,7 @@ elseif(VIDEO_TYPE STREQUAL "VGA")
 endif()
 
 # Audio output configuration (I2S, PWM or PWME)
-set(AUDIO_TYPE "I2S" CACHE STRING "Audio output: I2S, PWM or PWME")
+set(AUDIO_TYPE "PWM" CACHE STRING "Audio output: I2S, PWM or PWME")
 
 # PSRAM speed configuration (84, 100, 133, 166 MHz target)
 # Leave unset for no-PSRAM builds

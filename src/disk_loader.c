@@ -30,7 +30,7 @@ extern uint8_t vram[2 * RAM_PAGES_PER_POOL * RAM_PAGE_SIZE];
 disk_entry_t* g_disk_list = (disk_entry_t*)vram;//[MAX_DISK_IMAGES];
 
 #if PICO_RP2350
-uint8_t drive0_cache[sizeof(bdsk_header_t) + BDSK_TRACKS * (sizeof(bdsk_track_desc_t) + BDSK_TRACK_DATA_SIZE)];
+uint8_t drive0_cache[BDSK_BYTES];
 #endif
 
 int g_disk_count = 0;
