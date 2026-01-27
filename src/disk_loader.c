@@ -30,7 +30,7 @@ extern uint8_t vram[2 * RAM_PAGES_PER_POOL * RAM_PAGE_SIZE];
 disk_entry_t* g_disk_list = (disk_entry_t*)vram;//[MAX_DISK_IMAGES];
 
 #if PICO_RP2350
-uint8_t drive0_cache[sizeof(bdsk_header_t) + BDSK_TRACKS * (sizeof(bdsk_track_desc_t) + BDSK_TRACK_DATA_SIZE)];
+uint8_t drive0_cache[BDSK_BYTES];
 #endif
 
 int g_disk_count = 0;
@@ -818,7 +818,7 @@ int disk_mount_to_emulator(int drive, mii_t *mii, int slot, int preserve_state, 
     
     // Set up the mii_dd_file_t structure (no file->map backing on RP2350)
     memset(file, 0, sizeof(*file));
-    file->pathname = disk->filename;  // Just point to our filename
+    strncpy(file->pathname, disk->filename, sizeof(file->pathname));  // Just point to our filename
     file->format = disk_type_to_mii_format(disk->type, disk->filename);
     file->read_only = read_only;  // Read-only: no in-memory backing for writes
     file->size = disk->size;

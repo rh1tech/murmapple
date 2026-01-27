@@ -68,6 +68,8 @@ typedef struct bdsk_track_desc {
 // Bits beyond bit_count up to BDSK_TRACK_DATA_SIZE*8 are undefined (padding).
 } bdsk_track_desc_t;
 
+#define BDSK_BYTES (sizeof(bdsk_header_t) + BDSK_TRACKS * (sizeof(bdsk_track_desc_t) + BDSK_TRACK_DATA_SIZE))
+
 // Global state
 extern disk_entry_t* g_disk_list;
 extern int g_disk_count;
