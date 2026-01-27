@@ -134,7 +134,7 @@ mii_dd_file_load(
 		uint8_t zero = 0;
 		f_write(f, &zero, 1, &bw);
 	}
-	mii_dd_files[flags].format = flags; // reuse format and flags as drive no
+	mii_dd_files[flags].drive_idx = flags; // reuse flags as drive idx
 	return &mii_dd_files[flags];
 }
 
@@ -162,7 +162,7 @@ mii_dd_read(
 {
 	if (!dd->file || !dd->file->pathname) return -1;
 
-	FIL* f = &mii_ff_files[dd->file->format];
+	FIL* f = &mii_ff_files[dd->file->drive_idx];
     if (f_lseek(f, 512 * blk) != FR_OK) goto err;
 
     uint8_t buf[512];
@@ -190,8 +190,9 @@ mii_dd_write(
     uint32_t blk,
     uint16_t blockcount)
 {
-	if (!dd->file || !dd->file->pathname) return -1;
-	FIL* f = &mii_ff_files[dd->file->format];
+	if (!dd->file || !dd->file->pathname || dd->file->read_only) return -1;
+	
+	FIL* f = &mii_ff_files[dd->file->drive_idx];
 
     if (f_lseek(f, 512 * blk) != FR_OK)
         goto err;

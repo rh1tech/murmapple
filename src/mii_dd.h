@@ -41,9 +41,10 @@ enum {
 typedef struct mii_dd_file_t {
 	struct mii_dd_file_t *next;
 	char 			pathname[128];
+	uint32_t 		size;
 	uint8_t 		format;
 	uint8_t 		read_only;
-	uint32_t 		size;
+	uint8_t 		drive_idx;
 } mii_dd_file_t;
 
 /*

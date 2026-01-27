@@ -324,6 +324,8 @@ _mii_sm_init(
 				dd->slot_id, dd->drive);
 		if(i == 0) { // W/A
 			mii_dd_drive_load(dd, mii_dd_file_load(&mii->dd, "/apple/drive0.img", i));
+		} else {
+			mii_dd_drive_load(dd, mii_dd_file_load(&mii->dd, "/apple/drive1.img", i));
 		}
 	}
 	mii_dd_register_drives(&mii->dd, c->drive, MII_SM_DRIVE_COUNT);
